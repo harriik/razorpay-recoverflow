@@ -1,0 +1,19 @@
+package com.recoverflow.recovery;
+
+public enum RecoveryCaseStatus {
+    DETECTED,
+    CLASSIFYING,
+    ELIGIBILITY_CHECK,
+    AI_ANALYSIS,
+    ACTION_EVALUATION,
+    POLICY_EVALUATION,
+    ACTION_APPROVED,
+    EXECUTING,
+    RETRY_PENDING,
+    ACTION_FAILED,
+    RECOVERED,
+    FAILED_TERMINAL,
+    ESCALATED,
+    STOPPED,
+    UNKNOWN
+}
