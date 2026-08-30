@@ -15,7 +15,6 @@ import org.springframework.stereotype.Component;
  * Thread-safe.
  */
 @Component
-@Primary
 public class MockPaymentGateway implements PaymentGateway {
 
     public enum Scenario {

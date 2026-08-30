@@ -84,6 +84,12 @@ public class RecoveryCase {
     @Column(name = "approved_threshold_snapshot", columnDefinition = "TEXT")
     private String approvedThresholdSnapshot;
 
+    @Column(name = "pending_action")
+    private String pendingAction;
+
+    @Column(name = "pending_reason")
+    private String pendingReason;
+
     @Version
     @Column(name = "version", nullable = false)
     private Integer version = 0;
@@ -146,9 +152,13 @@ public class RecoveryCase {
     public String getApprovedPolicyVersion() { return approvedPolicyVersion; }
     public UUID getApprovedPolicyDecisionId() { return approvedPolicyDecisionId; }
     public String getApprovedThresholdSnapshot() { return approvedThresholdSnapshot; }
+    public String getPendingAction() { return pendingAction; }
+    public String getPendingReason() { return pendingReason; }
     public void setApprovedAction(String a) { this.approvedAction = a; this.updatedAt = Instant.now(); }
     public void setApprovedAt(Instant t) { this.approvedAt = t; this.updatedAt = Instant.now(); }
     public void setApprovedPolicyVersion(String v) { this.approvedPolicyVersion = v; this.updatedAt = Instant.now(); }
     public void setApprovedPolicyDecisionId(UUID id) { this.approvedPolicyDecisionId = id; this.updatedAt = Instant.now(); }
     public void setApprovedThresholdSnapshot(String s) { this.approvedThresholdSnapshot = s; this.updatedAt = Instant.now(); }
+    public void setPendingAction(String a) { this.pendingAction = a; this.updatedAt = Instant.now(); }
+    public void setPendingReason(String r) { this.pendingReason = r; this.updatedAt = Instant.now(); }
 }

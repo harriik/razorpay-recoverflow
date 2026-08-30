@@ -241,7 +241,7 @@ public class ExecutionService {
                 (reserved.action.getActionType() == RecoveryActionType.SEND_PAYMENT_LINK || reserved.action.getActionType() == RecoveryActionType.SEND_REMINDER);
 
         if (isLink) {
-            // Payment link creation does NOT move money
+            // Payment link creation does NOT move money — must distinguish pending reason
             if (gatewayResult.status() == GatewayStatus.SUCCESS) {
                 action.setStatus(RecoveryActionStatus.SUCCESS);
                 action.setGatewayRef(gatewayResult.gatewayRef());
@@ -249,13 +249,16 @@ public class ExecutionService {
                 actionRepo.save(action);
 
                 // Link created -> case goes to RETRY_PENDING (waiting for customer), not RECOVERED
+                // Explicit pendingAction/pendingReason clarifies semantics (RETRY_PENDING + PAYMENT_LINK vs SCHEDULE_RETRY)
                 try {
                     stateMachine.validate(rc.getStatus(), RecoveryCaseStatus.RETRY_PENDING);
                     rc.setStatus(RecoveryCaseStatus.RETRY_PENDING);
+                    rc.setPendingAction(action.getActionType().name());
+                    rc.setPendingReason("WAITING_CUSTOMER_PAYMENT");
                     caseRepo.save(rc);
                     auditService.record(corr, rc.getId(), rc.getPayment().getId(), rc.getMerchant().getId(),
                             "PAYMENT_LINK_CREATED", "EXECUTING", "RETRY_PENDING", AuditActor.GATEWAY,
-                            "{\"gatewayRef\":\"" + gatewayResult.gatewayRef() + "\"}");
+                            "{\"gatewayRef\":\"" + gatewayResult.gatewayRef() + "\",\"pendingAction\":\"" + action.getActionType() + "\"}");
                 } catch (InvalidTransitionException ex) {
                     // If cannot go to RETRY_PENDING, keep EXECUTING -> ACTION_FAILED?
                 }
@@ -267,6 +270,8 @@ public class ExecutionService {
                 try {
                     stateMachine.validate(rc.getStatus(), RecoveryCaseStatus.ACTION_FAILED);
                     rc.setStatus(RecoveryCaseStatus.ACTION_FAILED);
+                    rc.setPendingAction(null);
+                    rc.setPendingReason(null);
                     caseRepo.save(rc);
                 } catch (InvalidTransitionException ignored) {}
                 auditService.record(corr, rc.getId(), rc.getPayment().getId(), rc.getMerchant().getId(),
@@ -275,7 +280,7 @@ public class ExecutionService {
             }
         }
 
-        // Financial actions
+        // Financial actions: distinguish RETRY_NOW (immediate recovery) vs SCHEDULE_RETRY (pending)
         if (gatewayResult.status() == GatewayStatus.SUCCESS) {
             action.setStatus(RecoveryActionStatus.SUCCESS);
             action.setGatewayRef(gatewayResult.gatewayRef());
@@ -283,11 +288,30 @@ public class ExecutionService {
             action.setObservedAt(Instant.now());
             actionRepo.save(action);
 
-            // Money recovered only on payment success confirmation
+            if (action.getActionType() == RecoveryActionType.SCHEDULE_RETRY) {
+                // Scheduled retry success means scheduled, not immediately recovered — still pending
+                try {
+                    stateMachine.validate(rc.getStatus(), RecoveryCaseStatus.RETRY_PENDING);
+                    rc.setStatus(RecoveryCaseStatus.RETRY_PENDING);
+                    rc.setPendingAction(action.getActionType().name());
+                    rc.setPendingReason("SCHEDULED_RETRY_PENDING");
+                    caseRepo.save(rc);
+                    auditService.record(corr, rc.getId(), rc.getPayment().getId(), rc.getMerchant().getId(),
+                            "SCHEDULED_RETRY_SCHEDULED", "EXECUTING", "RETRY_PENDING", AuditActor.GATEWAY,
+                            "{\"gatewayRef\":\"" + gatewayResult.gatewayRef() + "\"}");
+                } catch (InvalidTransitionException ex) {
+                    // fallback to RECOVERED if cannot go to RETRY_PENDING (should not happen via state machine: EXECUTING->RETRY_PENDING is allowed)
+                }
+                return new ExecutionResult(true, "Retry scheduled, pending execution", rc.getId(), action.getActionType(), reserved.idempotencyKey, gatewayResult.gatewayRef(), RecoveryCaseStatus.RETRY_PENDING, ExecutionResult.RecoveryActionStatus.SUCCESS, corr, true);
+            }
+
+            // RETRY_NOW: Money recovered only on payment success confirmation
             rc.setRecoveredAmount(rc.getAmount());
             try {
                 stateMachine.validate(rc.getStatus(), RecoveryCaseStatus.RECOVERED);
                 rc.setStatus(RecoveryCaseStatus.RECOVERED);
+                rc.setPendingAction(null);
+                rc.setPendingReason(null);
                 caseRepo.save(rc);
             } catch (InvalidTransitionException ex) {
                 // Should not happen
