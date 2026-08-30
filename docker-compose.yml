@@ -1,0 +1,59 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: recoverflow-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-recoverflow}
+      POSTGRES_USER: ${POSTGRES_USER:-recoverflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-recoverflow}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-recoverflow} -d ${POSTGRES_DB:-recoverflow}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: recoverflow-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-recoverflow}
+      DATABASE_USER: ${POSTGRES_USER:-recoverflow}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-recoverflow}
+      DEMO_API_KEY: ${DEMO_API_KEY:-demo-key-change-me}
+      DEMO_MERCHANT_ID: ${DEMO_MERCHANT_ID:-00000000-0000-0000-0000-000000000001}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q '\"status\":\"UP\"' || wget -qO- http://localhost:8080/api/v1/health | grep -q 'UP'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: recoverflow-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8080}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+
+volumes:
+  pgdata:

@@ -1,0 +1,41 @@
+# Secrets
+.env
+!.env.example
+*.pem
+*.key
+
+# Backend
+backend/target/
+backend/.mvn/
+!.mvn/wrapper/maven-wrapper.jar
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+frontend/dist/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Docker volumes (if local bind)
+pgdata/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
