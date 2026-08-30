@@ -26,15 +26,15 @@ public class RecoveryCase {
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    @OneToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "payment_id", nullable = false, unique = true)
     private Payment payment;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "merchant_id", nullable = false)
     private Merchant merchant;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "customer_id", nullable = false)
     private Customer customer;
 
@@ -68,6 +68,21 @@ public class RecoveryCase {
 
     @Column(name = "unknown_since")
     private Instant unknownSince;
+
+    @Column(name = "approved_action")
+    private String approvedAction;
+
+    @Column(name = "approved_at")
+    private Instant approvedAt;
+
+    @Column(name = "approved_policy_version")
+    private String approvedPolicyVersion;
+
+    @Column(name = "approved_policy_decision_id")
+    private UUID approvedPolicyDecisionId;
+
+    @Column(name = "approved_threshold_snapshot", columnDefinition = "TEXT")
+    private String approvedThresholdSnapshot;
 
     @Version
     @Column(name = "version", nullable = false)
@@ -126,4 +141,14 @@ public class RecoveryCase {
     public void setStoppedReason(String r) { this.stoppedReason = r; }
     public void setUnknownSince(Instant t) { this.unknownSince = t; }
     public void setFailureCode(String code) { this.failureCode = code; }
+    public String getApprovedAction() { return approvedAction; }
+    public Instant getApprovedAt() { return approvedAt; }
+    public String getApprovedPolicyVersion() { return approvedPolicyVersion; }
+    public UUID getApprovedPolicyDecisionId() { return approvedPolicyDecisionId; }
+    public String getApprovedThresholdSnapshot() { return approvedThresholdSnapshot; }
+    public void setApprovedAction(String a) { this.approvedAction = a; this.updatedAt = Instant.now(); }
+    public void setApprovedAt(Instant t) { this.approvedAt = t; this.updatedAt = Instant.now(); }
+    public void setApprovedPolicyVersion(String v) { this.approvedPolicyVersion = v; this.updatedAt = Instant.now(); }
+    public void setApprovedPolicyDecisionId(UUID id) { this.approvedPolicyDecisionId = id; this.updatedAt = Instant.now(); }
+    public void setApprovedThresholdSnapshot(String s) { this.approvedThresholdSnapshot = s; this.updatedAt = Instant.now(); }
 }
