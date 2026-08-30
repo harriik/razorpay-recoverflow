@@ -17,15 +17,13 @@ import com.recoverflow.policy.PolicyContext;
 import com.recoverflow.policy.PolicyDecisionType;
 import com.recoverflow.policy.PolicyEngine;
 import com.recoverflow.recovery.RecoveryActionType;
+import com.recoverflow.synthetic.SyntheticAiProxy;
 import com.recoverflow.synthetic.SyntheticCase;
 import com.recoverflow.synthetic.SyntheticWorldGenerator;
 import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.EnumMap;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
@@ -45,19 +43,22 @@ public class EvaluationEngine {
     private final PolicyEngine policyEngine;
     private final RecoveryDecisionService decisionService;
     private final PolicyConfig policyConfig;
+    private final SyntheticAiProxy syntheticAiProxy;
 
     public EvaluationEngine(SyntheticWorldGenerator generator,
                             InterventionLikelihoodEstimator estimator,
                             ExpectedNetRecoveryValueEngine evEngine,
                             PolicyEngine policyEngine,
                             RecoveryDecisionService decisionService,
-                            PolicyConfig policyConfig) {
+                            PolicyConfig policyConfig,
+                            SyntheticAiProxy syntheticAiProxy) {
         this.generator = generator;
         this.estimator = estimator;
         this.evEngine = evEngine;
         this.policyEngine = policyEngine;
         this.decisionService = decisionService;
         this.policyConfig = policyConfig;
+        this.syntheticAiProxy = syntheticAiProxy;
     }
 
     public EvaluationResult run(long seed, int datasetSize) {
@@ -168,12 +169,12 @@ public class EvaluationEngine {
         BigDecimal friction = BigDecimal.ZERO;
         int attempts = 0, successes = 0, escalations = 0, stopped = 0, failedTerminal = 0, policyBlocks = 0;
 
-        Random aiRnd = new Random(seed ^ 0x9E3779B97F4A7C15L); // deterministic AI noise
-
         for (SyntheticCase sc : dataset) {
             revenueAtRisk = revenueAtRisk.add(sc.observable().amount());
             ObservableContext obs = toObservableContext(sc.observable());
-            AiAssessment ai = generateMockAi(sc, obs, aiRnd);
+            // Synthetic AI proxy: observable-only, versioned, never reads HiddenTruth
+            long perCaseSeed = seed ^ sc.caseId().hashCode();
+            AiAssessment ai = generateSyntheticAi(obs, perCaseSeed);
             var pEst = estimator.estimate(obs, ai);
             var ranked = evEngine.rank(sc.observable().amount(), pEst, ai.riskLevel());
             PolicyContext base = toPolicyContext(sc.observable(), ranked.isEmpty() ? RecoveryActionType.RETRY_NOW : ranked.get(0).action());
@@ -201,11 +202,11 @@ public class EvaluationEngine {
     private AblationSummary computeAblation(List<SyntheticCase> dataset, long seed) {
         int changed = 0, helped = 0, hurt = 0, total = dataset.size();
         List<PerCaseAblation> perCase = new ArrayList<>();
-        Random aiRnd = new Random(seed ^ 0x9E3779B97F4A7C15L);
 
         for (SyntheticCase sc : dataset) {
             ObservableContext obs = toObservableContext(sc.observable());
-            AiAssessment ai = generateMockAi(sc, obs, aiRnd);
+            long perCaseSeed = seed ^ sc.caseId().hashCode();
+            AiAssessment ai = generateSyntheticAi(obs, perCaseSeed);
             var pObs = estimator.estimateObservableOnly(obs);
             var pAi = estimator.estimate(obs, ai);
             PolicyContext baseObs = toPolicyContext(sc.observable(), RecoveryActionType.RETRY_NOW);
@@ -255,50 +256,13 @@ public class EvaluationEngine {
                 new BigDecimal("10000.0000"), 3, 48);
     }
 
-    // Mock AI for evaluation: 75% correct failureCategory, else random wrong; recoverability etc. derived from observed
-    private AiAssessment generateMockAi(SyntheticCase sc, ObservableContext obs, Random rnd) {
-        FailureCategory observedCat = mapGatewayToFailureCategory(obs.gatewayCode());
-        FailureCategory aiCat;
-        boolean correct = rnd.nextDouble() < 0.75;
-        if (correct) {
-            aiCat = observedCat;
-        } else {
-            // Pick random wrong
-            FailureCategory[] all = FailureCategory.values();
-            do { aiCat = all[rnd.nextInt(all.length)]; } while (aiCat == observedCat);
-        }
-
-        Recoverability rec = rnd.nextDouble() < 0.5 ? Recoverability.HIGH : (rnd.nextDouble() < 0.5 ? Recoverability.MEDIUM : Recoverability.LOW);
-        EvidenceQuality eq = rnd.nextDouble() < 0.6 ? EvidenceQuality.HIGH : (rnd.nextDouble() < 0.5 ? EvidenceQuality.MEDIUM : EvidenceQuality.LOW);
-        RiskLevel risk = rnd.nextDouble() < 0.7 ? RiskLevel.LOW : (rnd.nextDouble() < 0.5 ? RiskLevel.MEDIUM : RiskLevel.HIGH);
-
-        // Candidate assessments: for each action, assign HIGH if that action's P_true is highest for this hidden case, else random
-        // But to keep AI plausible, we assign HIGH to the action with highest P_true with 70% chance, else random
-        Map<RecoveryActionType, Double> pTrue = sc.pTrue();
-        RecoveryActionType bestTrue = pTrue.entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse(RecoveryActionType.SCHEDULE_RETRY);
-        List<CandidateAssessment> list = new ArrayList<>();
-        for (RecoveryActionType action : List.of(RecoveryActionType.RETRY_NOW, RecoveryActionType.SCHEDULE_RETRY, RecoveryActionType.SEND_PAYMENT_LINK, RecoveryActionType.SEND_REMINDER)) {
-            CandidateAssessmentLevel level;
-            if (action == bestTrue && rnd.nextDouble() < 0.7) level = CandidateAssessmentLevel.HIGH;
-            else if (rnd.nextDouble() < 0.3) level = CandidateAssessmentLevel.HIGH;
-            else if (rnd.nextDouble() < 0.5) level = CandidateAssessmentLevel.MEDIUM;
-            else level = CandidateAssessmentLevel.LOW;
-            list.add(new CandidateAssessment(action, level, true, null));
-        }
-        RecoveryActionType recommended = list.stream().max((a,b) -> a.assessment().ordinal() - b.assessment().ordinal()).map(CandidateAssessment::action).orElse(RecoveryActionType.SCHEDULE_RETRY);
-        return new AiAssessment(aiCat, rec, list, recommended, eq, risk, "Mock AI for evaluation seed=" + sc.caseId(), "mock-eval-v1", "v1");
-    }
-
-    private FailureCategory mapGatewayToFailureCategory(String gateway) {
-        return switch (gateway) {
-            case "BANK_TIMEOUT" -> FailureCategory.TEMPORARY_BANK_FAILURE;
-            case "NETWORK_ERROR" -> FailureCategory.NETWORK_ERROR;
-            case "INSUFFICIENT_FUNDS" -> FailureCategory.INSUFFICIENT_FUNDS;
-            case "AUTH_FAILED" -> FailureCategory.AUTH_FAILED;
-            case "CARD_EXPIRED" -> FailureCategory.CARD_EXPIRED;
-            case "LIMIT_EXCEEDED" -> FailureCategory.LIMIT_EXCEEDED;
-            default -> FailureCategory.UNKNOWN;
-        };
+    /**
+     * Synthetic AI proxy — observable-only, versioned, never reads HiddenTruth.
+     * Uses SyntheticAiProxy (synthetic-ai-v1) which maps observable gateway, amount bucket, history, elapsed to qualitative assessment.
+     * This is the deterministic proxy for large-scale benchmark; real LLM mode uses same ObservableContext and same schema.
+     */
+    private AiAssessment generateSyntheticAi(ObservableContext obs, long seed) {
+        return syntheticAiProxy.assess(obs, seed);
     }
 
     public record MetricsHolder(
