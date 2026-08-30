@@ -5,14 +5,14 @@ import java.math.BigDecimal;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 /**
  * Deterministic mock gateway for simulation and tests.
- * Supports SUCCESS, FAILURE, TIMEOUT, TRANSIENT_FAILURE, DUPLICATE, UNKNOWN, PAYMENT_LINK_SUCCESS.
+ * Supports SUCCESS (PAYMENT_RECOVERED), FAILURE, TIMEOUT, TRANSIENT_FAILURE, DUPLICATE, UNKNOWN, PAYMENT_LINK_SUCCESS (LINK_CREATED).
  * Behavior is configured per idempotencyKey via setScenario, or defaults to SUCCESS for unspecified keys.
  * Thread-safe.
+ * No Razorpay details leak: this is pure simulation.
  */
 @Component
 public class MockPaymentGateway implements PaymentGateway {
@@ -70,7 +70,7 @@ public class MockPaymentGateway implements PaymentGateway {
         GatewayResult result;
         String ref = "mock_" + UUID.randomUUID().toString().substring(0, 8);
         switch (scenario) {
-            case SUCCESS -> result = GatewayResult.success(idempotencyKey, ref);
+            case SUCCESS -> result = GatewayResult.paymentRecovered(idempotencyKey, ref);
             case FAILURE_RETRYABLE -> result = GatewayResult.failure(idempotencyKey, ref, true);
             case FAILURE_TERMINAL -> result = GatewayResult.failure(idempotencyKey, ref, false);
             case TRANSIENT_FAILURE -> result = new GatewayResult(GatewayStatus.TRANSIENT_FAILURE, ref, idempotencyKey, "Transient", true);
@@ -81,8 +81,9 @@ public class MockPaymentGateway implements PaymentGateway {
                 throw new GatewayTimeoutException(idempotencyKey, "Simulated timeout for " + idempotencyKey);
             }
             case UNKNOWN -> result = GatewayResult.unknown(idempotencyKey);
-            case PAYMENT_LINK_SUCCESS, PAYMENT_LINK_FAILURE -> result = GatewayResult.success(idempotencyKey, "plink_" + ref);
-            default -> result = GatewayResult.success(idempotencyKey, ref);
+            case PAYMENT_LINK_SUCCESS -> result = GatewayResult.linkCreated(idempotencyKey, "plink_" + ref);
+            case PAYMENT_LINK_FAILURE -> result = GatewayResult.failure(idempotencyKey, "plink_" + ref, false);
+            default -> result = GatewayResult.paymentRecovered(idempotencyKey, ref);
         }
         results.put(idempotencyKey, result);
         return result;
@@ -100,7 +101,7 @@ public class MockPaymentGateway implements PaymentGateway {
         if (stored.status() == GatewayStatus.UNKNOWN && scenario != null) {
             switch (scenario) {
                 case SUCCESS -> {
-                    GatewayResult success = GatewayResult.success(idempotencyKey, "mock_q_" + UUID.randomUUID().toString().substring(0, 8));
+                    GatewayResult success = GatewayResult.paymentRecovered(idempotencyKey, "mock_q_" + UUID.randomUUID().toString().substring(0, 8));
                     results.put(idempotencyKey, success);
                     return success;
                 }
@@ -138,7 +139,7 @@ public class MockPaymentGateway implements PaymentGateway {
                 throw new GatewayTimeoutException(idempotencyKey, "Payment link timeout");
             }
             case PAYMENT_LINK_FAILURE, FAILURE_TERMINAL, FAILURE_RETRYABLE -> result = GatewayResult.failure(idempotencyKey, ref, false);
-            default -> result = new GatewayResult(GatewayStatus.SUCCESS, ref, idempotencyKey, "Payment link created", false);
+            default -> result = GatewayResult.linkCreated(idempotencyKey, ref);
         }
         results.put(idempotencyKey, result);
         return result;
@@ -151,11 +152,11 @@ public class MockPaymentGateway implements PaymentGateway {
 
     /**
      * For tests: simulate customer completing payment after link created.
-     * Marks the link's idempotency key as SUCCESS (money recovered).
+     * Marks the link's idempotency key as PAYMENT_RECOVERED (money recovered).
      */
     public void simulateLinkConversion(String linkIdempotencyKey, boolean success) {
         if (success) {
-            results.put(linkIdempotencyKey, GatewayResult.success(linkIdempotencyKey, "pay_after_link_" + UUID.randomUUID().toString().substring(0, 8)));
+            results.put(linkIdempotencyKey, GatewayResult.paymentRecovered(linkIdempotencyKey, "pay_after_link_" + UUID.randomUUID().toString().substring(0, 8)));
         } else {
             results.put(linkIdempotencyKey, GatewayResult.failure(linkIdempotencyKey, null, false));
         }

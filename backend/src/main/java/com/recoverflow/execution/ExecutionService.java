@@ -242,7 +242,8 @@ public class ExecutionService {
 
         if (isLink) {
             // Payment link creation does NOT move money — must distinguish pending reason
-            if (gatewayResult.status() == GatewayStatus.SUCCESS) {
+            // Only LINK_CREATED (or SUCCESS legacy) indicates link created, never PAYMENT_RECOVERED
+            if (gatewayResult.isLinkCreated() || gatewayResult.status() == GatewayStatus.SUCCESS) {
                 action.setStatus(RecoveryActionStatus.SUCCESS);
                 action.setGatewayRef(gatewayResult.gatewayRef());
                 action.setExecutedAt(Instant.now());
@@ -281,7 +282,8 @@ public class ExecutionService {
         }
 
         // Financial actions: distinguish RETRY_NOW (immediate recovery) vs SCHEDULE_RETRY (pending)
-        if (gatewayResult.status() == GatewayStatus.SUCCESS) {
+        // Revenue is recovered ONLY when gateway confirms PAYMENT_RECOVERED (or SUCCESS legacy)
+        if (gatewayResult.isPaymentRecovered()) {
             action.setStatus(RecoveryActionStatus.SUCCESS);
             action.setGatewayRef(gatewayResult.gatewayRef());
             action.setExecutedAt(Instant.now());

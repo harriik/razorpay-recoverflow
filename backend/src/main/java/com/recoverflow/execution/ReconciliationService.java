@@ -70,8 +70,9 @@ public class ReconciliationService {
 
         GatewayResult queried = gateway.queryStatus(key);
 
-        if (queried.status() == GatewayStatus.SUCCESS) {
-            // Was success despite timeout -> RECOVERED
+        // Revenue is recovered ONLY when payment success is confirmed (PAYMENT_RECOVERED or SUCCESS legacy)
+        if (queried.isPaymentRecovered()) {
+            // Was payment recovered despite timeout -> RECOVERED
             unknownAction.setStatus(RecoveryActionStatus.SUCCESS);
             unknownAction.setGatewayRef(queried.gatewayRef());
             unknownAction.setObservedAt(Instant.now());
@@ -82,15 +83,22 @@ public class ReconciliationService {
                 rc.setStatus(RecoveryCaseStatus.RECOVERED);
                 rc.setRecoveredAmount(rc.getAmount());
                 rc.setUnknownSince(null);
+                rc.setPendingAction(null);
+                rc.setPendingReason(null);
                 caseRepo.save(rc);
                 auditService.record(corr, rc.getId(), rc.getPayment().getId(), rc.getMerchant().getId(),
                         "RECONCILED_SUCCESS", "UNKNOWN", "RECOVERED", AuditActor.GATEWAY,
                         "{\"gatewayRef\":\"" + queried.gatewayRef() + "\"}");
-                return new ReconciliationResult(true, "Reconciled as SUCCESS", RecoveryCaseStatus.RECOVERED, queried, corr);
+                return new ReconciliationResult(true, "Reconciled as PAYMENT_RECOVERED", RecoveryCaseStatus.RECOVERED, queried, corr);
             } catch (Exception e) {
                 return new ReconciliationResult(false, "Transition failed: " + e.getMessage(), rc.getStatus(), queried, corr);
             }
-
+        } else if (queried.isLinkCreated() || queried.status() == GatewayStatus.PENDING || queried.status() == GatewayStatus.CUSTOMER_ACTION_REQUIRED) {
+            // Link still pending, not recovered — remain UNKNOWN or go to RETRY_PENDING if link was the original action
+            auditService.record(corr, rc.getId(), rc.getPayment().getId(), rc.getMerchant().getId(),
+                    "RECONCILED_LINK_PENDING", "UNKNOWN", "UNKNOWN", AuditActor.GATEWAY,
+                    "{\"gatewayRef\":\"" + queried.gatewayRef() + "\"}");
+            return new ReconciliationResult(true, "Link pending, not recovered", RecoveryCaseStatus.UNKNOWN, queried, corr);
         } else if (queried.status() == GatewayStatus.FAILURE) {
             boolean retryable = queried.retryable();
             unknownAction.setStatus(RecoveryActionStatus.FAILED);
