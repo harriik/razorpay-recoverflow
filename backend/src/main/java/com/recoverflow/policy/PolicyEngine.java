@@ -13,6 +13,16 @@ import org.springframework.stereotype.Component;
  * Must never read AI fields (riskLevel, evidenceQuality, recoverability).
  * Evaluates ordered rules; first match decides outcome.
  * Consumes EV ranking but remains independent of EV formula.
+ *
+ * Execution-time revalidation: Phase 5 ExecutionService must NOT trust a previously stored
+ * ACTION_APPROVED without re-reading latest case/merchant/customer state and revalidating
+ * via PolicyRevalidator before any gateway call (handles opt-out, retry-count, window expiry,
+ * threshold changes, concurrency). See PolicyRevalidator.
+ *
+ * High-value clarification: financial actions (RETRY_*) escalate above autoActionLimit;
+ * SEND_PAYMENT_LINK remains allowed (non-financial, does not move money).
+ * Business-policy authority stays here; ExecutionService independently enforces
+ * ACTION_APPROVED + current policy validity + idempotency + state invariants via optimistic locking.
  */
 @Component
 public class PolicyEngine {
@@ -66,6 +76,10 @@ public class PolicyEngine {
         }
 
         // 5. AMOUNT_THRESHOLD — hard, independent of AI riskLevel
+        // Clarified high-value policy: financial auto actions (RETRY_NOW, SCHEDULE_RETRY) that move money are escalated
+        // when amount > autoActionLimit, but SEND_PAYMENT_LINK remains ALLOWED because it does not itself move money
+        // (it creates a link for later customer action). If policy required escalating ALL auto actions for high value,
+        // this rule would check all RecoveryActionType; current design intentionally allows LINK.
         if (ctx.amount().compareTo(ctx.autoActionLimit()) > 0 && isAutomaticFinancialAction(ctx.candidateAction())) {
             return new PolicyDecision(ctx.candidateAction(), PolicyDecisionType.ESCALATE,
                     PolicyRuleId.AMOUNT_THRESHOLD, "amount_exceeds_auto_limit", config.getVersion(), snapshot);
