@@ -250,9 +250,7 @@ public class EvaluationEngine {
         for (SyntheticCase sc : dataset) {
             revenueAtRisk = revenueAtRisk.add(sc.observable().amount());
             ObservableContext obs = toObservableContext(sc.observable());
-            // Synthetic AI proxy: observable-only, versioned, never reads HiddenTruth
-            long perCaseSeed = seed ^ sc.caseId().hashCode();
-            AiAssessment ai = generateSyntheticAi(obs, perCaseSeed);
+            AiAssessment ai = generateSyntheticAi(obs);
             var pEst = estimator.estimate(obs, ai);
             var ranked = evEngine.rank(sc.observable().amount(), pEst, ai.riskLevel());
             PolicyContext base = toPolicyContext(sc.observable(), ranked.isEmpty() ? RecoveryActionType.RETRY_NOW : ranked.get(0).action());
@@ -283,8 +281,7 @@ public class EvaluationEngine {
 
         for (SyntheticCase sc : dataset) {
             ObservableContext obs = toObservableContext(sc.observable());
-            long perCaseSeed = seed ^ sc.caseId().hashCode();
-            AiAssessment ai = generateSyntheticAi(obs, perCaseSeed);
+            AiAssessment ai = generateSyntheticAi(obs);
             var pObs = estimator.estimateObservableOnly(obs);
             var pAi = estimator.estimate(obs, ai);
             PolicyContext baseObs = toPolicyContext(sc.observable(), RecoveryActionType.RETRY_NOW);
@@ -339,8 +336,8 @@ public class EvaluationEngine {
      * Uses SyntheticAiProxy (synthetic-ai-v1) which maps observable gateway, amount bucket, history, elapsed to qualitative assessment.
      * This is the deterministic proxy for large-scale benchmark; real LLM mode uses same ObservableContext and same schema.
      */
-    private AiAssessment generateSyntheticAi(ObservableContext obs, long seed) {
-        return syntheticAiProxy.assess(obs, seed);
+    private AiAssessment generateSyntheticAi(ObservableContext obs) {
+        return syntheticAiProxy.assess(obs);
     }
 
     public record MetricsHolder(

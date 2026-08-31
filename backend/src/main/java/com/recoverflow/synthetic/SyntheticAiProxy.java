@@ -31,14 +31,12 @@ public class SyntheticAiProxy {
     public static final String VERSION = "synthetic-ai-v1";
 
     /**
-     * Produce AI assessment from observable only. Deterministic per observable + version.
+     * Produce AI assessment from observable only. Deterministic per version + ObservableContext.
      * RNG is derived ONLY from SyntheticAiProxy VERSION and ObservableContext (gateway, amount, method, history, elapsed, etc.),
      * NOT from evaluation seed/caseId that correlates with hidden-world RNG lineage. This ensures independence.
      * The proxy is intentionally imperfect.
      */
-    public AiAssessment assess(ObservableContext obs, long seed) {
-        // Derive proxy seed ONLY from version + observable (ignore passed evaluation seed/caseId correlation)
-        // We still accept seed param for API compatibility but do not mix hidden-correlated seed.
+    public AiAssessment assess(ObservableContext obs) {
         long proxySeed = VERSION.hashCode() * 31L
                 + obs.gatewayCode().hashCode() * 31L
                 + obs.amount().stripTrailingZeros().hashCode()
@@ -48,7 +46,6 @@ public class SyntheticAiProxy {
                 + obs.priorFailureCount() * 31L
                 + (obs.linkAlreadySent() ? 1 : 0) * 31L
                 + obs.attemptCount() * 31L;
-        // Mix in a fixed proxy salt, NOT the evaluation seed, to keep deterministic per observable
         proxySeed ^= 0x9E3779B97F4A7C15L;
         Random rnd = new Random(proxySeed);
 
@@ -100,6 +97,12 @@ public class SyntheticAiProxy {
         return new AiAssessment(aiCat, rec, list, recommended, eq, risk,
                 "Synthetic AI proxy v1 observable-only for gateway=" + obs.gatewayCode() + " bucket=" + obs.amountBucket(),
                 "synthetic-ai-proxy-" + VERSION, VERSION);
+    }
+
+    /** Backward compatibility: old API took seed but it is ignored to preserve RNG independence. */
+    @Deprecated
+    public AiAssessment assess(ObservableContext obs, long ignoredSeed) {
+        return assess(obs);
     }
 
     private FailureCategory mapGatewayToCategory(String gateway) {

@@ -60,8 +60,8 @@ class SyntheticAiNoHiddenTruthTest {
         ObservableContext obs = new ObservableContext(
                 new BigDecimal("5000.0000"), "INR", PaymentMethod.CARD, "BANK_TIMEOUT",
                 5, 0, 12, 1, false);
-        // This call must succeed with only observable + seed, no hidden
-        var ai = proxy.assess(obs, 12345L);
+        // This call must succeed with only observable, no hidden, no seed
+        var ai = proxy.assess(obs);
         assertNotNull(ai);
         assertNotNull(ai.failureCategory());
         assertNotNull(ai.candidateAssessments());
@@ -79,9 +79,9 @@ class SyntheticAiNoHiddenTruthTest {
         ObservableContext obs = new ObservableContext(
                 new BigDecimal("1000.0000"), "INR", PaymentMethod.UPI, "INSUFFICIENT_FUNDS",
                 2, 0, 0, 0, false);
-        var a1 = proxy.assess(obs, 999L);
-        var a2 = proxy.assess(obs, 999L);
-        assertEquals(a1.failureCategory(), a2.failureCategory(), "Proxy must be deterministic");
+        var a1 = proxy.assess(obs);
+        var a2 = proxy.assess(obs);
+        assertEquals(a1.failureCategory(), a2.failureCategory(), "Proxy must be deterministic per observable+version");
         assertEquals(a1.candidateAssessments().get(0).assessment(), a2.candidateAssessments().get(0).assessment());
     }
 }
