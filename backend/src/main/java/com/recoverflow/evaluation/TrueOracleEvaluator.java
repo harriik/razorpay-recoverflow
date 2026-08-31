@@ -20,14 +20,20 @@ public class TrueOracleEvaluator {
 
     private final PolicyEngine policyEngine;
     private final TrueDecisionValueCalculator trueCalculator;
+    private final com.recoverflow.policy.PolicyConfig policyConfig;
 
     public TrueOracleEvaluator(PolicyEngine policyEngine, TrueDecisionValueCalculator trueCalculator) {
+        this(policyEngine, trueCalculator, new com.recoverflow.policy.PolicyConfig());
+    }
+
+    public TrueOracleEvaluator(PolicyEngine policyEngine, TrueDecisionValueCalculator trueCalculator, com.recoverflow.policy.PolicyConfig policyConfig) {
         this.policyEngine = policyEngine;
         this.trueCalculator = trueCalculator;
+        this.policyConfig = policyConfig;
     }
 
     public TrueOracleEvaluator(PolicyEngine policyEngine) {
-        this(policyEngine, new TrueDecisionValueCalculator());
+        this(policyEngine, new TrueDecisionValueCalculator(), new com.recoverflow.policy.PolicyConfig());
     }
 
     public record OracleResult(
@@ -38,10 +44,25 @@ public class TrueOracleEvaluator {
     ) {}
 
     /**
-     * Compute oracle for a synthetic case. Uses hidden P_true via trueCalculator, but respects same policy constraints.
-     * PolicyContext is built from observable data (same as real system) to determine permissibility.
+     * Compute oracle for a synthetic case using evaluation-wide policy configuration.
+     * This is the default for synthetic evaluation where all merchants share 10000/3/48.
+     * Explicitly documented as evaluation-wide, used for Baseline A/B, RecoverFlow, and Oracle.
      */
     public OracleResult evaluate(SyntheticCase sc) {
+        // Evaluation-wide policy configuration: 10000 / 3 / 48 are evaluation parameters, not production merchant-specific
+        PolicyContext base = new PolicyContext(
+                sc.observable().amount(), sc.observable().gatewayCode(), sc.observable().attemptCount(), sc.observable().elapsedHours(),
+                false, sc.observable().linkAlreadySent(), RecoveryActionType.RETRY_NOW,
+                policyConfig.getAutoActionLimit(), policyConfig.getMaxRetries(), policyConfig.getRecoveryWindowHours());
+        return evaluate(sc, base);
+    }
+
+    /**
+     * Compute oracle using the SAME per-case policy snapshot as the practical decision.
+     * Preferred when SyntheticCase carries a merchant-specific policy configuration.
+     * Ensures oracle and practical decision use identical thresholds.
+     */
+    public OracleResult evaluate(SyntheticCase sc, PolicyContext basePolicyContext) {
         List<RecoveryActionType> candidates = List.of(
                 RecoveryActionType.RETRY_NOW,
                 RecoveryActionType.SCHEDULE_RETRY,
@@ -53,7 +74,10 @@ public class TrueOracleEvaluator {
         Map<RecoveryActionType, BigDecimal> perActionTrue = new java.util.EnumMap<>(RecoveryActionType.class);
 
         for (RecoveryActionType action : candidates) {
-            PolicyContext ctx = toPolicyContext(sc, action);
+            PolicyContext ctx = new PolicyContext(
+                    sc.observable().amount(), sc.observable().gatewayCode(), sc.observable().attemptCount(), sc.observable().elapsedHours(),
+                    basePolicyContext.optedOut(), sc.observable().linkAlreadySent(), action,
+                    basePolicyContext.autoActionLimit(), basePolicyContext.maxRetries(), basePolicyContext.recoveryWindowHours());
             var decision = policyEngine.evaluate(ctx);
             if (decision.result() != PolicyDecisionType.ALLOWED) continue;
             Double pTrue = sc.pTrue().get(action);
@@ -84,6 +108,6 @@ public class TrueOracleEvaluator {
         return new PolicyContext(
                 obs.amount(), obs.gatewayCode(), obs.attemptCount(), obs.elapsedHours(),
                 false, obs.linkAlreadySent(), action,
-                new java.math.BigDecimal("10000.0000"), 3, 48);
+                policyConfig.getAutoActionLimit(), policyConfig.getMaxRetries(), policyConfig.getRecoveryWindowHours());
     }
 }
