@@ -16,6 +16,7 @@ import java.util.Map;
  * then selects highest trueNetValue among permissible.
  * Never participates in actual decision; only evaluates after decision.
  */
+@org.springframework.stereotype.Component
 public class TrueOracleEvaluator {
 
     private final PolicyEngine policyEngine;
@@ -26,14 +27,11 @@ public class TrueOracleEvaluator {
         this(policyEngine, trueCalculator, new com.recoverflow.policy.PolicyConfig());
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
     public TrueOracleEvaluator(PolicyEngine policyEngine, TrueDecisionValueCalculator trueCalculator, com.recoverflow.policy.PolicyConfig policyConfig) {
         this.policyEngine = policyEngine;
         this.trueCalculator = trueCalculator;
         this.policyConfig = policyConfig;
-    }
-
-    public TrueOracleEvaluator(PolicyEngine policyEngine) {
-        this(policyEngine, new TrueDecisionValueCalculator(), new com.recoverflow.policy.PolicyConfig());
     }
 
     public record OracleResult(

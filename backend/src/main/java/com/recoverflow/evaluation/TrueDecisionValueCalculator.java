@@ -13,6 +13,7 @@ import java.util.Map;
  * deterministic per action (versioned), independent of AI riskLevel, evidenceQuality, recoverability, P_estimated.
  * Same action has same deterministic costs regardless of strategy.
  */
+@org.springframework.stereotype.Component
 public class TrueDecisionValueCalculator {
 
     public static final String VERSION = "true-value-v1";
@@ -27,13 +28,18 @@ public class TrueDecisionValueCalculator {
             RecoveryActionType.SEND_REMINDER, new BigDecimal("5.00")
     );
 
+    @org.springframework.beans.factory.annotation.Autowired
     public TrueDecisionValueCalculator(ExpectedNetRecoveryValueEngine evEngine) {
         this.evEngine = evEngine;
     }
 
     // For tests without Spring
-    public TrueDecisionValueCalculator() {
+    public TrueDecisionValueCalculator(boolean test) {
         this.evEngine = new ExpectedNetRecoveryValueEngine();
+    }
+
+    public TrueDecisionValueCalculator() {
+        this(true);
     }
 
     public String getVersion() { return VERSION; }
