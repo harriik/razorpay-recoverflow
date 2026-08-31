@@ -31,13 +31,26 @@ public class SyntheticAiProxy {
     public static final String VERSION = "synthetic-ai-v1";
 
     /**
-     * Produce AI assessment from observable only. Deterministic per (observable + seed).
-     * The proxy is intentionally imperfect: it is correct with observable-dependent accuracy, wrong otherwise.
+     * Produce AI assessment from observable only. Deterministic per observable + version.
+     * RNG is derived ONLY from SyntheticAiProxy VERSION and ObservableContext (gateway, amount, method, history, elapsed, etc.),
+     * NOT from evaluation seed/caseId that correlates with hidden-world RNG lineage. This ensures independence.
+     * The proxy is intentionally imperfect.
      */
     public AiAssessment assess(ObservableContext obs, long seed) {
-        // Deterministic per case: use observable hash + seed
-        long perCaseSeed = seed ^ obs.gatewayCode().hashCode() ^ obs.amount().hashCode() ^ obs.elapsedHours() ^ 0x9E3779B97F4A7C15L;
-        Random rnd = new Random(perCaseSeed);
+        // Derive proxy seed ONLY from version + observable (ignore passed evaluation seed/caseId correlation)
+        // We still accept seed param for API compatibility but do not mix hidden-correlated seed.
+        long proxySeed = VERSION.hashCode() * 31L
+                + obs.gatewayCode().hashCode() * 31L
+                + obs.amount().stripTrailingZeros().hashCode()
+                + obs.method().hashCode() * 31L
+                + obs.elapsedHours() * 31L
+                + obs.priorSuccessCount() * 31L
+                + obs.priorFailureCount() * 31L
+                + (obs.linkAlreadySent() ? 1 : 0) * 31L
+                + obs.attemptCount() * 31L;
+        // Mix in a fixed proxy salt, NOT the evaluation seed, to keep deterministic per observable
+        proxySeed ^= 0x9E3779B97F4A7C15L;
+        Random rnd = new Random(proxySeed);
 
         FailureCategory observedCat = mapGatewayToCategory(obs.gatewayCode());
         // Proxy accuracy depends on observable clarity: 70-80% correct, else random wrong

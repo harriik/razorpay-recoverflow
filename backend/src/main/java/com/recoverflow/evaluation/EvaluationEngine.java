@@ -66,6 +66,84 @@ public class EvaluationEngine {
         return evaluateDataset(dataset, seed);
     }
 
+    /**
+     * Multi-seed evaluation foundation: runs same methodology across independent seeds.
+     * Each seed generates its own world; all three strategies see same world per seed.
+     * Structure allows 30 → 50+ via config only (pass larger list).
+     */
+    public MultiSeedResult runMultiSeed(List<Long> seeds, int datasetSizePerSeed) {
+        if (seeds == null || seeds.isEmpty()) throw new IllegalArgumentException("seeds required");
+        List<MultiSeedResult.PerSeedResult> perSeed = new ArrayList<>();
+        List<BigDecimal> lifts = new ArrayList<>();
+        List<BigDecimal> recoverFlowRevenues = new ArrayList<>();
+        List<BigDecimal> baselineBRevenues = new ArrayList<>();
+        int wins = 0, losses = 0, ties = 0;
+
+        for (long seed : seeds) {
+            List<SyntheticCase> dataset = generator.generate(seed, datasetSizePerSeed);
+            EvaluationResult result = evaluateDataset(dataset, seed);
+            BigDecimal baseB = result.baselineB().recovered();
+            BigDecimal rec = result.recoverFlow().recovered();
+            BigDecimal lift = computeAiLift(rec, baseB);
+            lifts.add(lift);
+            recoverFlowRevenues.add(rec);
+            baselineBRevenues.add(baseB);
+            int cmp = rec.compareTo(baseB);
+            if (cmp > 0) wins++;
+            else if (cmp < 0) losses++;
+            else ties++;
+            perSeed.add(new MultiSeedResult.PerSeedResult(seed, baseB, rec, lift));
+        }
+
+        BigDecimal meanRec = mean(recoverFlowRevenues);
+        BigDecimal medianRec = median(recoverFlowRevenues);
+        BigDecimal meanBaseB = mean(baselineBRevenues);
+        BigDecimal meanLift = mean(lifts);
+        BigDecimal medianLift = median(lifts);
+        BigDecimal stdLift = stdDev(lifts, meanLift);
+        BigDecimal minLift = lifts.stream().min(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
+        BigDecimal maxLift = lifts.stream().max(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
+
+        return new MultiSeedResult(seeds.size(), perSeed, meanRec, medianRec, meanBaseB, meanLift, medianLift, stdLift, wins, losses, ties, minLift, maxLift);
+    }
+
+    private BigDecimal computeAiLift(BigDecimal recoverFlow, BigDecimal baselineB) {
+        if (baselineB.compareTo(BigDecimal.ZERO) == 0) {
+            if (recoverFlow.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ZERO;
+            // Baseline 0 but RecoverFlow >0: define as 1 (100% lift) to avoid division by zero, explicitly documented
+            return BigDecimal.ONE;
+        }
+        return recoverFlow.subtract(baselineB).divide(baselineB, 4, java.math.RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal mean(List<BigDecimal> vals) {
+        if (vals.isEmpty()) return BigDecimal.ZERO;
+        BigDecimal sum = vals.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        return sum.divide(new BigDecimal(vals.size()), 4, java.math.RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal median(List<BigDecimal> vals) {
+        if (vals.isEmpty()) return BigDecimal.ZERO;
+        List<BigDecimal> sorted = vals.stream().sorted().toList();
+        int n = sorted.size();
+        if (n % 2 == 1) return sorted.get(n / 2);
+        BigDecimal a = sorted.get(n / 2 - 1);
+        BigDecimal b = sorted.get(n / 2);
+        return a.add(b).divide(new BigDecimal("2"), 4, java.math.RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal stdDev(List<BigDecimal> vals, BigDecimal mean) {
+        if (vals.isEmpty() || vals.size() == 1) return BigDecimal.ZERO;
+        BigDecimal variance = BigDecimal.ZERO;
+        for (BigDecimal v : vals) {
+            BigDecimal diff = v.subtract(mean);
+            variance = variance.add(diff.multiply(diff));
+        }
+        variance = variance.divide(new BigDecimal(vals.size()), 8, java.math.RoundingMode.HALF_UP);
+        double std = Math.sqrt(variance.doubleValue());
+        return new BigDecimal(std).setScale(4, java.math.RoundingMode.HALF_UP);
+    }
+
     public EvaluationResult evaluateDataset(List<SyntheticCase> dataset, long seed) {
         // Held-out: last 20% is final benchmark (not used for tuning)
         int heldOutStart = (int) (dataset.size() * 0.8);
