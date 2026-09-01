@@ -44,6 +44,8 @@ public class EvaluationEngine {
     private final RecoveryDecisionService decisionService;
     private final PolicyConfig policyConfig;
     private final SyntheticAiProxy syntheticAiProxy;
+    private final TrueDecisionValueCalculator trueCalculator;
+    private final TrueOracleEvaluator oracleEvaluator;
 
     public EvaluationEngine(SyntheticWorldGenerator generator,
                             InterventionLikelihoodEstimator estimator,
@@ -51,7 +53,9 @@ public class EvaluationEngine {
                             PolicyEngine policyEngine,
                             RecoveryDecisionService decisionService,
                             PolicyConfig policyConfig,
-                            SyntheticAiProxy syntheticAiProxy) {
+                            SyntheticAiProxy syntheticAiProxy,
+                            TrueDecisionValueCalculator trueCalculator,
+                            TrueOracleEvaluator oracleEvaluator) {
         this.generator = generator;
         this.estimator = estimator;
         this.evEngine = evEngine;
@@ -59,6 +63,8 @@ public class EvaluationEngine {
         this.decisionService = decisionService;
         this.policyConfig = policyConfig;
         this.syntheticAiProxy = syntheticAiProxy;
+        this.trueCalculator = trueCalculator;
+        this.oracleEvaluator = oracleEvaluator;
     }
 
     public EvaluationResult run(long seed, int datasetSize) {
@@ -338,6 +344,51 @@ public class EvaluationEngine {
      */
     private AiAssessment generateSyntheticAi(ObservableContext obs) {
         return syntheticAiProxy.assess(obs);
+    }
+
+    /**
+     * Evaluator-only helper: compute StrategyDecisionQuality for a single case and selected action.
+     * Must be called ONLY AFTER the strategy has selected an action (decision already made).
+     * Uses HiddenTruth/P_true via TrueDecisionValueCalculator and TrueOracleEvaluator, never passed into decision path.
+     * Handles no-action semantics: if selected is null, selectedTrueValue is 0, oracle may still exist.
+     */
+    StrategyDecisionQuality evaluateQuality(SyntheticCase sc, RecoveryActionType selectedAction) {
+        // Build base policy context for oracle (same thresholds as practical)
+        PolicyContext base = new PolicyContext(
+                sc.observable().amount(), sc.observable().gatewayCode(), sc.observable().attemptCount(), sc.observable().elapsedHours(),
+                false, sc.observable().linkAlreadySent(), RecoveryActionType.RETRY_NOW,
+                policyConfig.getAutoActionLimit(), policyConfig.getMaxRetries(), policyConfig.getRecoveryWindowHours());
+        // Oracle is evaluator-only, uses hidden P_true
+        var oracleRes = oracleEvaluator.evaluate(sc, base);
+        RecoveryActionType oracleAction = oracleRes.oracleAction();
+        BigDecimal oracleTrueValue = oracleRes.oracleTrueValue();
+        // Selected true value
+        BigDecimal selectedTrueValue = null;
+        if (selectedAction != null) {
+            Double pTrue = sc.pTrue().get(selectedAction);
+            if (pTrue != null) {
+                selectedTrueValue = trueCalculator.calculate(selectedAction, sc.observable().amount(), pTrue);
+            }
+        }
+        // Normalize nulls to 0 for regret calculation, but keep record null for explicit no-action semantics
+        BigDecimal selectedForRegret = selectedTrueValue != null ? selectedTrueValue : BigDecimal.ZERO;
+        BigDecimal oracleForRegret = oracleTrueValue != null ? oracleTrueValue : BigDecimal.ZERO;
+        BigDecimal regret;
+        if (oracleTrueValue == null) {
+            // No permissible oracle -> regret 0
+            regret = BigDecimal.ZERO;
+        } else if (selectedAction == null) {
+            // Strategy has no action but oracle exists -> regret = oracleTrueValue
+            regret = oracleTrueValue;
+        } else if (selectedAction == oracleAction) {
+            regret = BigDecimal.ZERO;
+        } else {
+            BigDecimal diff = oracleForRegret.subtract(selectedForRegret);
+            regret = diff.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : diff;
+        }
+        regret = regret.setScale(4, java.math.RoundingMode.HALF_UP);
+        // For record, keep null true values as null to preserve no-action semantics, but regret as above
+        return new StrategyDecisionQuality(selectedAction, oracleAction, selectedTrueValue, oracleTrueValue, regret);
     }
 
     public record MetricsHolder(
