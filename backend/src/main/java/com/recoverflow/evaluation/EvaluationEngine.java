@@ -165,6 +165,7 @@ public class EvaluationEngine {
         BigDecimal meanRec = mean(recoverFlowRevenues);
         BigDecimal medianRec = median(recoverFlowRevenues);
         BigDecimal meanBaseB = mean(baselineBRevenues);
+        BigDecimal meanBaseA = mean(baselineARevenues);
         BigDecimal meanLift = mean(lifts);
         BigDecimal medianLift = median(lifts);
         BigDecimal stdLift = stdDev(lifts, meanLift);
@@ -197,7 +198,7 @@ public class EvaluationEngine {
         var overallAiDecision = EvaluationMetricsAggregator.aggregateAiDecisions(
                 overallTotalCases, overallChanged, overallHelped, overallHurt, overallNeutral);
 
-        return new MultiSeedResult(seeds.size(), perSeed, meanRec, medianRec, meanBaseB, meanLift, medianLift, stdLift, wins, losses, ties, minLift, maxLift,
+        return new MultiSeedResult(seeds.size(), perSeed, meanRec, medianRec, meanBaseB, meanBaseA, meanLift, medianLift, stdLift, wins, losses, ties, minLift, maxLift,
                 overallRevenue, overallDecisionQuality, overallAiDecision);
     }
 

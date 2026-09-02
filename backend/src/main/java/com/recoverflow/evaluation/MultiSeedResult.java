@@ -13,6 +13,7 @@ public record MultiSeedResult(
         BigDecimal meanRecoverFlowRevenue,
         BigDecimal medianRecoverFlowRevenue,
         BigDecimal meanBaselineBRevenue,
+        BigDecimal meanBaselineARevenue,
         BigDecimal meanAiLift,
         BigDecimal medianAiLift,
         BigDecimal stdDevAiLift,
@@ -47,7 +48,7 @@ public record MultiSeedResult(
                            BigDecimal meanBaselineBRevenue, BigDecimal meanAiLift, BigDecimal medianAiLift,
                            BigDecimal stdDevAiLift, int winCount, int lossCount, int tieCount,
                            BigDecimal minAiLift, BigDecimal maxAiLift) {
-        this(seedCount, perSeedResults, meanRecoverFlowRevenue, medianRecoverFlowRevenue, meanBaselineBRevenue,
+        this(seedCount, perSeedResults, meanRecoverFlowRevenue, medianRecoverFlowRevenue, meanBaselineBRevenue, null,
                 meanAiLift, medianAiLift, stdDevAiLift, winCount, lossCount, tieCount, minAiLift, maxAiLift,
                 null, null, null);
     }
