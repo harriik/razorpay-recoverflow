@@ -312,13 +312,44 @@ public class EvaluationEngine {
 
             boolean isWrongAi = !ai.failureCategory().name().equals(sc.hiddenTruth().trueFailureCategory().name());
 
+            // --- Evaluator-only true-value computation (after decisions, never before) ---
+            // Use same policy thresholds for oracle as for practical (evaluation-wide 10000/3/48 via toPolicyContext)
+            // Compute true values for selected actions and oracle — canonical BigDecimal, not String
+            PolicyContext baseForOracle = toPolicyContext(sc.observable(), RecoveryActionType.RETRY_NOW);
+            var oracleRes = new TrueOracleEvaluator(policyEngine, trueCalculator).evaluate(sc, baseForOracle);
+            String oracleActionStr = oracleRes.oracleAction() != null ? oracleRes.oracleAction().name() : "NONE";
+            BigDecimal oracleTrueVal = oracleRes.oracleTrueValue(); // BigDecimal canonical, null if no oracle
+
+            BigDecimal trueValObs = selectedObs != null ? trueCalculator.calculate(selectedObs, sc.observable().amount(), sc.pTrue().getOrDefault(selectedObs, 0.0)) : null;
+            BigDecimal trueValAi = selectedAi != null ? trueCalculator.calculate(selectedAi, sc.observable().amount(), sc.pTrue().getOrDefault(selectedAi, 0.0)) : null;
+            // Keep BigDecimal canonical; string display would be derived via toPlainString() if needed
+
+            // Regret via StrategyDecisionQuality (evaluator-only)
+            BigDecimal regretObsVal = null;
+            BigDecimal regretAiVal = null;
+            try {
+                var qObs = evaluateQuality(sc, selectedObs);
+                var qAi = evaluateQuality(sc, selectedAi);
+                regretObsVal = qObs.decisionRegret();
+                regretAiVal = qAi.decisionRegret();
+            } catch (Exception ignored) {}
+
+            // AI help/hurt via TRUE expected value (not Bernoulli outcome), using pure classifier
+            var classification = AiHelpHurtClassifier.classify(selectedObs, selectedAi, trueValObs, trueValAi);
+            boolean aiHelpedTrue = classification.helped();
+            boolean aiHurtTrue = classification.hurt();
+            boolean aiNeutralTrue = classification.neutral();
+            boolean actionChangedTrue = classification.actionChanged();
+
             perCase.add(new PerCaseAblation(
                     sc.caseId().toString(), sc.observable().gatewayCode(), sc.hiddenTruth().trueFailureCategory().name(),
                     ai.failureCategory().name(), isWrongAi,
                     selectedObs != null ? selectedObs.name() : "NONE", selectedAi != null ? selectedAi.name() : "NONE",
                     pObs.toString(), pAi.toString(),
                     outcomeObs, outcomeAi, changedFlag, helpedFlag, hurtFlag,
-                    ai.evidenceQuality().name()));
+                    ai.evidenceQuality().name(),
+                    trueValObs, trueValAi, oracleActionStr, oracleTrueVal, regretObsVal, regretAiVal,
+                    aiHelpedTrue, aiHurtTrue, aiNeutralTrue, actionChangedTrue));
         }
         return new AblationSummary(changed, helped, hurt, total, perCase);
     }
@@ -418,7 +449,18 @@ public class EvaluationEngine {
             boolean changed,
             boolean helped,
             boolean hurt,
-            String evidenceQuality
+            String evidenceQuality,
+            // New true-value fields (evaluator-only, after decision) — canonical BigDecimal
+            BigDecimal trueValuePolicyOnly,
+            BigDecimal trueValueAi,
+            String oracleAction,
+            BigDecimal oracleTrueValue,
+            BigDecimal regretPolicyOnly,
+            BigDecimal regretAi,
+            boolean aiHelpedTrue,
+            boolean aiHurtTrue,
+            boolean aiNeutralTrue,
+            boolean actionChangedTrue
     ) {}
 
     public record AblationSummary(
