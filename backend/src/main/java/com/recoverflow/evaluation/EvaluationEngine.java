@@ -83,22 +83,83 @@ public class EvaluationEngine {
         List<BigDecimal> lifts = new ArrayList<>();
         List<BigDecimal> recoverFlowRevenues = new ArrayList<>();
         List<BigDecimal> baselineBRevenues = new ArrayList<>();
+        List<BigDecimal> baselineARevenues = new ArrayList<>();
+        List<BigDecimal> atRiskList = new ArrayList<>();
         int wins = 0, losses = 0, ties = 0;
+
+        // For overall aggregation
+        List<BigDecimal> overallPolicyRegrets = new ArrayList<>();
+        List<BigDecimal> overallRecoverRegrets = new ArrayList<>();
+        List<BigDecimal> overallPolicySelectedTrue = new ArrayList<>();
+        List<BigDecimal> overallRecoverSelectedTrue = new ArrayList<>();
+        List<BigDecimal> overallOracleTrueValues = new ArrayList<>();
+        int overallChanged = 0, overallHelped = 0, overallHurt = 0, overallNeutral = 0;
+        int overallTotalCases = 0;
 
         for (long seed : seeds) {
             List<SyntheticCase> dataset = generator.generate(seed, datasetSizePerSeed);
             EvaluationResult result = evaluateDataset(dataset, seed);
+            BigDecimal baseA = result.baselineA().recovered();
             BigDecimal baseB = result.baselineB().recovered();
             BigDecimal rec = result.recoverFlow().recovered();
+            BigDecimal atRisk = result.recoverFlow().revenueAtRisk();
             BigDecimal lift = computeAiLift(rec, baseB);
             lifts.add(lift);
             recoverFlowRevenues.add(rec);
             baselineBRevenues.add(baseB);
+            baselineARevenues.add(baseA);
+            atRiskList.add(atRisk);
             int cmp = rec.compareTo(baseB);
             if (cmp > 0) wins++;
             else if (cmp < 0) losses++;
             else ties++;
-            perSeed.add(new MultiSeedResult.PerSeedResult(seed, baseB, rec, lift));
+
+            // Per-seed aggregation via EvaluationMetricsAggregator
+            var ablation = result.ablation();
+            List<BigDecimal> policyRegrets = new ArrayList<>();
+            List<BigDecimal> recoverRegrets = new ArrayList<>();
+            List<BigDecimal> policySelectedTrue = new ArrayList<>();
+            List<BigDecimal> recoverSelectedTrue = new ArrayList<>();
+            List<BigDecimal> oracleVals = new ArrayList<>();
+            for (var pc : ablation.perCase()) {
+                if (pc.regretPolicyOnly() != null) policyRegrets.add(pc.regretPolicyOnly());
+                if (pc.regretAi() != null) recoverRegrets.add(pc.regretAi());
+                if (pc.trueValuePolicyOnly() != null) policySelectedTrue.add(pc.trueValuePolicyOnly());
+                if (pc.trueValueAi() != null) recoverSelectedTrue.add(pc.trueValueAi());
+                if (pc.oracleTrueValue() != null) oracleVals.add(pc.oracleTrueValue());
+            }
+            // Overall accumulation
+            overallPolicyRegrets.addAll(policyRegrets);
+            overallRecoverRegrets.addAll(recoverRegrets);
+            overallPolicySelectedTrue.addAll(policySelectedTrue);
+            overallRecoverSelectedTrue.addAll(recoverSelectedTrue);
+            overallOracleTrueValues.addAll(oracleVals);
+
+            var decisionQuality = EvaluationMetricsAggregator.aggregateDecisionQuality(
+                    policyRegrets, recoverRegrets, policySelectedTrue, recoverSelectedTrue, oracleVals);
+
+            // AI aggregation per seed: use true-value based counts
+            // neutral must be changed && neutral, otherwisehelped+hurt+neutral would sum to total not changed
+            int seedChanged = 0, seedHelped = 0, seedHurt = 0, seedNeutral = 0;
+            for (var pc : ablation.perCase()) {
+                if (pc.actionChangedTrue()) seedChanged++;
+                if (pc.aiHelpedTrue()) seedHelped++;
+                if (pc.aiHurtTrue()) seedHurt++;
+                if (pc.actionChangedTrue() && pc.aiNeutralTrue()) seedNeutral++;
+            }
+            overallChanged += seedChanged;
+            overallHelped += seedHelped;
+            overallHurt += seedHurt;
+            overallNeutral += seedNeutral;
+            overallTotalCases += ablation.total();
+
+            var aiDecision = EvaluationMetricsAggregator.aggregateAiDecisions(
+                    ablation.total(), seedChanged, seedHelped, seedHurt, seedNeutral);
+
+            var revenue = EvaluationMetricsAggregator.aggregateRevenue(
+                    List.of(atRisk), List.of(rec), List.of(baseB), List.of(rec));
+
+            perSeed.add(new MultiSeedResult.PerSeedResult(seed, baseB, rec, lift, baseA, revenue, decisionQuality, aiDecision));
         }
 
         BigDecimal meanRec = mean(recoverFlowRevenues);
@@ -110,7 +171,34 @@ public class EvaluationEngine {
         BigDecimal minLift = lifts.stream().min(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
         BigDecimal maxLift = lifts.stream().max(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
 
-        return new MultiSeedResult(seeds.size(), perSeed, meanRec, medianRec, meanBaseB, meanLift, medianLift, stdLift, wins, losses, ties, minLift, maxLift);
+        // Overall aggregated metrics
+        var overallRevenue = EvaluationMetricsAggregator.aggregateRevenue(
+                atRiskList, recoverFlowRevenues, baselineBRevenues, recoverFlowRevenues);
+        // For overall revenue we want absolute delta as sum difference, but aggregator for multi-seed currently only uses first element.
+        // We compute correctly via canonical sum difference to ensure multi-seed handling.
+        // If aggregator is single-seed oriented, we fallback to manual compute for overall delta/lift consistency.
+        // However we keep the aggregator result for atRisk/recovered and fix delta if needed.
+        if (baselineBRevenues.size() > 1) {
+            // Recompute delta as sum difference for multi-seed
+            BigDecimal sumBaseB = baselineBRevenues.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal sumRec = recoverFlowRevenues.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal delta = sumRec.subtract(sumBaseB).setScale(4, java.math.RoundingMode.HALF_UP);
+            BigDecimal relLift = sumBaseB.compareTo(BigDecimal.ZERO) == 0 ? null : delta.divide(sumBaseB, 4, java.math.RoundingMode.HALF_UP);
+            int zeroCount = (int) baselineBRevenues.stream().filter(b -> b.compareTo(BigDecimal.ZERO) == 0).count();
+            BigDecimal atRiskSum = atRiskList.stream().reduce(BigDecimal.ZERO, BigDecimal::add).setScale(4, java.math.RoundingMode.HALF_UP);
+            BigDecimal recoveredSum = sumRec.setScale(4, java.math.RoundingMode.HALF_UP);
+            BigDecimal rate = atRiskSum.compareTo(BigDecimal.ZERO) == 0 ? BigDecimal.ZERO.setScale(2, java.math.RoundingMode.HALF_UP)
+                    : recoveredSum.multiply(new BigDecimal("100")).divide(atRiskSum, 2, java.math.RoundingMode.HALF_UP);
+            overallRevenue = new EvaluationMetricsAggregator.RevenueMetrics(atRiskSum, recoveredSum, rate, overallTotalCases, delta, relLift, zeroCount);
+        }
+
+        var overallDecisionQuality = EvaluationMetricsAggregator.aggregateDecisionQuality(
+                overallPolicyRegrets, overallRecoverRegrets, overallPolicySelectedTrue, overallRecoverSelectedTrue, overallOracleTrueValues);
+        var overallAiDecision = EvaluationMetricsAggregator.aggregateAiDecisions(
+                overallTotalCases, overallChanged, overallHelped, overallHurt, overallNeutral);
+
+        return new MultiSeedResult(seeds.size(), perSeed, meanRec, medianRec, meanBaseB, meanLift, medianLift, stdLift, wins, losses, ties, minLift, maxLift,
+                overallRevenue, overallDecisionQuality, overallAiDecision);
     }
 
     private BigDecimal computeAiLift(BigDecimal recoverFlow, BigDecimal baselineB) {
