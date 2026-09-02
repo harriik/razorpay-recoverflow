@@ -21,12 +21,16 @@ public class EvaluationMetricsAggregator {
             int zeroBaselineRevenueCount
     ) {}
 
-    // Decision quality
+    // Decision quality - explicit strategy-specific semantics
     public record DecisionQualityMetrics(
-            BigDecimal totalTrueRegret,
-            BigDecimal meanTrueRegret,
-            BigDecimal medianTrueRegret,
-            BigDecimal meanSelectedTrueValue,
+            BigDecimal policyOnlyTotalTrueRegret,
+            BigDecimal recoverFlowTotalTrueRegret,
+            BigDecimal policyOnlyMeanTrueRegret,
+            BigDecimal recoverFlowMeanTrueRegret,
+            BigDecimal policyOnlyMedianTrueRegret,
+            BigDecimal recoverFlowMedianTrueRegret,
+            BigDecimal policyOnlyMeanSelectedTrueValue,
+            BigDecimal recoverFlowMeanSelectedTrueValue,
             BigDecimal meanOracleTrueValue,
             BigDecimal regretDelta,
             BigDecimal relativeRegretReduction // null = N/A when policyOnly 0
@@ -85,8 +89,18 @@ public class EvaluationMetricsAggregator {
         if (totalPolicy.compareTo(BigDecimal.ZERO) != 0) {
             relativeRegretReduction = regretDelta.divide(totalPolicy, 4, RoundingMode.HALF_UP);
         }
-        // totalTrueRegret is policy side total (canonical) to satisfy evaluator contract; mean/median reflect recover side
-        return new DecisionQualityMetrics(totalPolicy, meanRecover, medianRecover, meanSelectedRecover, meanOracle, regretDelta, relativeRegretReduction);
+        return new DecisionQualityMetrics(
+                totalPolicy,
+                totalRecover,
+                meanPolicy,
+                meanRecover,
+                medianPolicy,
+                medianRecover,
+                meanSelectedPolicy,
+                meanSelectedRecover,
+                meanOracle,
+                regretDelta,
+                relativeRegretReduction);
     }
 
     public static AiDecisionMetrics aggregateAiDecisions(int totalCases, int changed, int helped, int hurt, int neutral) {

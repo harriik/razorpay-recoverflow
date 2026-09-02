@@ -16,23 +16,53 @@ class EvaluationMetricsAggregatorTest {
         var selectedRecover = List.of(new BigDecimal("105.0000"), new BigDecimal("215.0000"));
         var oracle = List.of(new BigDecimal("110.0000"), new BigDecimal("220.0000"));
         var m = EvaluationMetricsAggregator.aggregateDecisionQuality(policy, recover, selectedPolicy, selectedRecover, oracle);
-        assertEquals(new BigDecimal("30.0000"), m.totalTrueRegret()); // policy 30, recover 10? Actually totalPolicy 30, totalRecover 10, but we compute recover side only
-        // Our aggregateDecisionQuality returns recover side total, but we check mean
-        assertEquals(new BigDecimal("5.0000"), m.meanTrueRegret()); // (5+5)/2
+        assertEquals(new BigDecimal("30.0000"), m.policyOnlyTotalTrueRegret());
+        assertEquals(new BigDecimal("10.0000"), m.recoverFlowTotalTrueRegret());
+        assertEquals(new BigDecimal("15.0000"), m.policyOnlyMeanTrueRegret());
+        assertEquals(new BigDecimal("5.0000"), m.recoverFlowMeanTrueRegret());
+        assertEquals(new BigDecimal("15.0000"), m.policyOnlyMedianTrueRegret());
+        assertEquals(new BigDecimal("5.0000"), m.recoverFlowMedianTrueRegret());
+        assertEquals(new BigDecimal("150.0000"), m.policyOnlyMeanSelectedTrueValue());
+        assertEquals(new BigDecimal("160.0000"), m.recoverFlowMeanSelectedTrueValue());
+        assertEquals(new BigDecimal("165.0000"), m.meanOracleTrueValue());
+        assertEquals(new BigDecimal("20.0000"), m.regretDelta());
+        assertEquals(new BigDecimal("0.6667"), m.relativeRegretReduction());
+        // scale checks
+        assertEquals(4, m.policyOnlyTotalTrueRegret().scale());
+        assertEquals(4, m.recoverFlowTotalTrueRegret().scale());
+    }
+
+    @Test
+    void strategySpecificTotalsRegression() {
+        // Explicit regression: policy 10+20=30, recover 4+6=10 => delta 20, relative 20/30
+        var policy = List.of(new BigDecimal("10.0000"), new BigDecimal("20.0000"));
+        var recover = List.of(new BigDecimal("4.0000"), new BigDecimal("6.0000"));
+        var m = EvaluationMetricsAggregator.aggregateDecisionQuality(policy, recover, List.of(BigDecimal.ZERO), List.of(BigDecimal.ZERO), List.of(BigDecimal.ZERO));
+        assertEquals(new BigDecimal("30.0000"), m.policyOnlyTotalTrueRegret());
+        assertEquals(new BigDecimal("10.0000"), m.recoverFlowTotalTrueRegret());
+        assertEquals(new BigDecimal("20.0000"), m.regretDelta());
+        assertEquals(new BigDecimal("0.6667"), m.relativeRegretReduction()); // 20/30 HALF_UP scale 4
+        // ensure no generic field is misused
+        assertNotEquals(m.policyOnlyTotalTrueRegret(), m.recoverFlowTotalTrueRegret());
+        assertEquals(4, m.policyOnlyTotalTrueRegret().scale());
+        assertEquals(4, m.recoverFlowTotalTrueRegret().scale());
+        assertEquals(4, m.regretDelta().scale());
     }
 
     @Test
     void meanRegret() {
         var regrets = List.of(new BigDecimal("10.0000"), new BigDecimal("20.0000"), new BigDecimal("30.0000"));
         var m = EvaluationMetricsAggregator.aggregateDecisionQuality(regrets, regrets, List.of(BigDecimal.ZERO), List.of(BigDecimal.ZERO), List.of(BigDecimal.ZERO));
-        assertEquals(new BigDecimal("20.0000"), m.meanTrueRegret());
+        assertEquals(new BigDecimal("20.0000"), m.policyOnlyMeanTrueRegret());
+        assertEquals(new BigDecimal("20.0000"), m.recoverFlowMeanTrueRegret());
     }
 
     @Test
     void medianRegret() {
         var regrets = List.of(new BigDecimal("10.0000"), new BigDecimal("30.0000"), new BigDecimal("20.0000"));
         var m = EvaluationMetricsAggregator.aggregateDecisionQuality(regrets, regrets, List.of(BigDecimal.ZERO), List.of(BigDecimal.ZERO), List.of(BigDecimal.ZERO));
-        assertEquals(new BigDecimal("20.0000"), m.medianTrueRegret());
+        assertEquals(new BigDecimal("20.0000"), m.policyOnlyMedianTrueRegret());
+        assertEquals(new BigDecimal("20.0000"), m.recoverFlowMedianTrueRegret());
     }
 
     @Test
@@ -166,10 +196,14 @@ class EvaluationMetricsAggregatorTest {
     @Test
     void emptyInput() {
         var m = EvaluationMetricsAggregator.aggregateDecisionQuality(List.of(), List.of(), List.of(), List.of(), List.of());
-        assertEquals(new BigDecimal("0.0000"), m.totalTrueRegret());
-        assertEquals(new BigDecimal("0.0000"), m.meanTrueRegret());
-        assertEquals(4, m.totalTrueRegret().scale());
-        assertEquals(4, m.meanTrueRegret().scale());
+        assertEquals(new BigDecimal("0.0000"), m.policyOnlyTotalTrueRegret());
+        assertEquals(new BigDecimal("0.0000"), m.recoverFlowTotalTrueRegret());
+        assertEquals(new BigDecimal("0.0000"), m.policyOnlyMeanTrueRegret());
+        assertEquals(new BigDecimal("0.0000"), m.recoverFlowMeanTrueRegret());
+        assertEquals(4, m.policyOnlyTotalTrueRegret().scale());
+        assertEquals(4, m.recoverFlowTotalTrueRegret().scale());
+        assertEquals(4, m.policyOnlyMeanTrueRegret().scale());
+        assertEquals(4, m.recoverFlowMeanTrueRegret().scale());
     }
 
     @Test
@@ -198,8 +232,10 @@ class EvaluationMetricsAggregatorTest {
                 List.of(new BigDecimal("0.0000"), new BigDecimal("0.0000")),
                 List.of(new BigDecimal("0.0000"), new BigDecimal("0.0000")),
                 List.of(BigDecimal.ZERO), List.of(BigDecimal.ZERO), List.of(BigDecimal.ZERO));
-        assertEquals(new BigDecimal("0.0000"), m.totalTrueRegret());
-        assertEquals(4, m.totalTrueRegret().scale());
+        assertEquals(new BigDecimal("0.0000"), m.policyOnlyTotalTrueRegret());
+        assertEquals(new BigDecimal("0.0000"), m.recoverFlowTotalTrueRegret());
+        assertEquals(4, m.policyOnlyTotalTrueRegret().scale());
+        assertEquals(4, m.recoverFlowTotalTrueRegret().scale());
     }
 
     @Test
@@ -208,8 +244,10 @@ class EvaluationMetricsAggregatorTest {
         var m = EvaluationMetricsAggregator.aggregateDecisionQuality(
                 List.of(new BigDecimal("0.0000")), List.of(new BigDecimal("0.0000")),
                 List.of(BigDecimal.ZERO), List.of(BigDecimal.ZERO), List.of(BigDecimal.ZERO));
-        assertEquals(new BigDecimal("0.0000"), m.totalTrueRegret());
-        assertEquals(4, m.totalTrueRegret().scale());
+        assertEquals(new BigDecimal("0.0000"), m.policyOnlyTotalTrueRegret());
+        assertEquals(new BigDecimal("0.0000"), m.recoverFlowTotalTrueRegret());
+        assertEquals(4, m.policyOnlyTotalTrueRegret().scale());
+        assertEquals(4, m.recoverFlowTotalTrueRegret().scale());
     }
 
     @Test
@@ -217,5 +255,21 @@ class EvaluationMetricsAggregatorTest {
         var m = EvaluationMetricsAggregator.aggregateAiDecisions(0, 0, 0, 0, 0);
         assertNull(m.aiHelpRate());
         assertNull(m.aiHurtRate());
+    }
+
+    @Test
+    void noGenericTotalField() throws Exception {
+        // Ensure no generic field named totalTrueRegret exists
+        var fields = EvaluationMetricsAggregator.DecisionQualityMetrics.class.getRecordComponents();
+        for (var f : fields) {
+            assertNotEquals("totalTrueRegret", f.getName(), "generic totalTrueRegret must not exist, use strategy-specific fields");
+        }
+        boolean hasPolicy = false, hasRecover = false;
+        for (var f : fields) {
+            if (f.getName().equals("policyOnlyTotalTrueRegret")) hasPolicy = true;
+            if (f.getName().equals("recoverFlowTotalTrueRegret")) hasRecover = true;
+        }
+        assertTrue(hasPolicy, "policyOnlyTotalTrueRegret must exist");
+        assertTrue(hasRecover, "recoverFlowTotalTrueRegret must exist");
     }
 }
