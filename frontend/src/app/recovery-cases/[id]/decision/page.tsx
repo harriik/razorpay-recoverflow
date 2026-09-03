@@ -140,19 +140,23 @@ export default function DecisionPage() {
 
       <div style={{ marginTop: 16, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16 }}>
         <h2 style={{ margin: 0, fontSize: 12, fontWeight: 800, letterSpacing: 0.6, color: "#0f172a" }}>Decision waterfall – historical audit</h2>
-        <div style={{ marginTop: 8, fontSize: 11, color: "#64748b" }}>Observable Evidence → AI Assessment → Intervention Likelihood → Expected Net Recovery Value → Policy Gate → Selected Action</div>
-        <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", fontSize: 11 }}>
-          <span style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: "4px 8px", borderRadius: 999 }}>Observable</span>
-          <span>↓</span>
-          <span style={{ background: hasSnapshot ? "#f0fdf4" : "#fef3c7", border: "1px solid #e2e8f0", padding: "4px 8px", borderRadius: 999 }}>AI Assessment</span>
-          <span>↓</span>
-          <span style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: "4px 8px", borderRadius: 999 }}>P_estimated</span>
-          <span>↓</span>
-          <span style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: "4px 8px", borderRadius: 999 }}>EV</span>
-          <span>↓</span>
-          <span style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: "4px 8px", borderRadius: 999 }}>Policy</span>
-          <span>↓</span>
-          <span style={{ background: "#0f172a", color: "#fff", padding: "4px 8px", borderRadius: 999, fontWeight: 800 }}>{data.selectedAction || "—"}</span>
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 0, maxWidth: 320, margin: "12px auto 0" }}>
+          {[
+            { label: "Observable Evidence", sub: `${Object.keys(data.observableEvidence || {}).length} fields`, color: "#f8fafc" },
+            { label: "AI Assessment", sub: hasSnapshot ? `${data.aiAssessment.recommendedAction || "—"} • ${data.aiAssessment.evidenceQuality || ""}` : "NOT_PERSISTED", color: hasSnapshot ? "#f0fdf4" : "#fef3c7" },
+            { label: "Intervention Likelihood", sub: "P_estimated per candidate", color: "#f8fafc" },
+            { label: "Expected Net Recovery Value", sub: "EV = P*amount - cost - friction - risk", color: "#f8fafc" },
+            { label: "Policy Gate", sub: `${data.candidates?.length || 0} candidates • ${data.candidates?.filter((c:any)=>c.policyResult==="ALLOWED").length || 0} allowed`, color: "#f8fafc" },
+            { label: "Selected Action", sub: data.selectedAction || "—", color: "#0f172a", textColor: "#fff" },
+          ].map((step, i, arr) => (
+            <div key={step.label} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <div style={{ background: step.color, color: (step as any).textColor || "#0f172a", border: "1px solid #e2e8f0", padding: "10px 14px", borderRadius: 12, fontSize: 11, fontWeight: 800, textAlign: "center", minWidth: 220, boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
+                <div>{step.label}</div>
+                <div style={{ fontSize: 10, fontWeight: 600, opacity: 0.7, marginTop: 2 }}>{step.sub}</div>
+              </div>
+              {i < arr.length - 1 && <div style={{ width: 2, height: 14, background: "#e2e8f0" }} />}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -171,17 +175,32 @@ export default function DecisionPage() {
         </div>
         <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16 }}>
           <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: "#0f172a" }}>AI Assessment</h3>
+          <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>HISTORICAL AI ASSESSMENT • {data.versions?.aiProvider}/{data.versions?.aiModel}</div>
           {hasSnapshot ? (
             <div style={{ marginTop: 10, display: "grid", gap: 8, fontSize: 11 }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#64748b" }}>failureCategory</span><strong>{data.aiAssessment.failureCategory || "—"}</strong></div>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#64748b" }}>recoverability</span><strong>{data.aiAssessment.recoverability || "—"}</strong></div>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#64748b" }}>evidenceQuality</span><strong>{data.aiAssessment.evidenceQuality || "—"}</strong></div>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#64748b" }}>riskLevel</span><strong>{data.aiAssessment.riskLevel || "—"}</strong></div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#64748b" }}>recommended</span><strong>{data.aiAssessment.recommendedAction || "—"}</strong></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#64748b" }}>recommendedAction</span><strong style={{ color: "#2563eb" }}>{data.aiAssessment.recommendedAction || "—"}</strong></div>
+              {data.aiAssessment.candidateAssessments && (
+                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: 8 }}>
+                  <div style={{ fontWeight: 700, color: "#0f172a", fontSize: 11 }}>candidateAssessments (AI)</div>
+                  <div style={{ marginTop: 4, display: "grid", gap: 4 }}>
+                    {(data.aiAssessment.candidateAssessments as any[]).map((ca: any, i: number) => (
+                      <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 10, background: "#fff", border: "1px solid #e2e8f0", padding: "4px 6px", borderRadius: 4 }}>
+                        <span>{ca.action}</span>
+                        <span style={{ fontWeight: 700, color: ca.assessment === "HIGH" ? "#16a34a" : ca.assessment === "MEDIUM" ? "#d97706" : "#64748b" }}>{ca.assessment || "N/A"}</span>
+                        <span style={{ color: ca.applicable ? "#16a34a" : "#dc2626" }}>{ca.applicable ? "applicable" : "not applicable"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: 8, marginTop: 4 }}>
                 <div style={{ fontWeight: 700, color: "#0f172a" }}>reasoningSummary</div>
                 <div style={{ color: "#475569", marginTop: 4 }}>{data.aiAssessment.reasoningSummary || "—"}</div>
-                <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>Provider: {data.aiAssessment.provider || data.versions?.aiProvider} • Model: {data.aiAssessment.modelId || data.versions?.aiModel}</div>
+                <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>Provider: {data.aiAssessment.provider || data.versions?.aiProvider} • Model: {data.aiAssessment.modelId || data.versions?.aiModel} • Fallback: {(data.aiAssessment as any).fallbackUsed ? "yes" : "no"}</div>
               </div>
             </div>
           ) : (
@@ -195,6 +214,11 @@ export default function DecisionPage() {
       <div style={{ marginTop: 16, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16 }}>
         <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: "#0f172a" }}>Candidates (historical ranking)</h3>
         <p style={{ margin: "4px 0 0", fontSize: 11, color: "#64748b" }}>Sorted by authoritative stored decision ranking – not recomputed. Do not fabricate P_estimated.</p>
+        {data.aiAssessment?.recommendedAction && data.selectedAction && data.aiAssessment.recommendedAction !== data.selectedAction && (
+          <div style={{ marginTop: 8, background: "#fffbeb", border: "1px solid #fde68a", padding: "8px 10px", borderRadius: 8, fontSize: 11, color: "#92400e" }}>
+            <strong>AI recommendation overridden by policy:</strong> AI recommended <strong>{data.aiAssessment.recommendedAction}</strong> → Policy <strong>{data.candidates?.find((c:any)=>c.action===data.selectedAction)?.policyResult || "BLOCKED"}</strong> → Selected <strong>{data.selectedAction}</strong> (rule {(data.candidates?.find((c:any)=>c.action===data.aiAssessment.recommendedAction)?.policyRuleId) || "—"})
+          </div>
+        )}
         <div style={{ marginTop: 10, overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
             <thead style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", textAlign: "left", color: "#475569" }}>
@@ -217,26 +241,52 @@ export default function DecisionPage() {
                   </td>
                 </tr>
               ) : (
-                data.candidates?.map((c: any, i: number) => (
-                  <tr key={i} style={{ borderTop: "1px solid #f1f5f9", background: c.policyResult === "ALLOWED" ? "#f0fdf4" : "#fff" }}>
-                    <td style={{ padding: "8px 6px", fontWeight: 700 }}>{c.action}</td>
-                    <td style={{ padding: "8px 6px" }}>{c.pEstimated ?? "—"}</td>
-                    <td style={{ padding: "8px 6px", fontWeight: 700 }}>{c.expectedNetValue ?? "—"}</td>
-                    <td style={{ padding: "8px 6px" }}>{c.operationalCost ?? "—"}</td>
-                    <td style={{ padding: "8px 6px", color: "#94a3b8" }}>{c.syntheticCustomerFrictionProxy ?? "—"}</td>
-                    <td style={{ padding: "8px 6px" }}>{c.riskPenalty ?? "—"}</td>
-                    <td style={{ padding: "8px 6px" }}>
-                      <span style={{ padding: "2px 6px", borderRadius: 6, fontSize: 10, fontWeight: 800, background: c.policyResult === "ALLOWED" ? "#dcfce7" : c.policyResult === "ESCALATE" ? "#ffedd5" : c.policyResult === "BLOCKED" ? "#fee2e2" : "#f3f4f6", color: c.policyResult === "ALLOWED" ? "#166534" : "#374151" }}>
-                        {c.policyResult}
-                      </span>
-                    </td>
-                    <td style={{ padding: "8px 6px", fontSize: 10, color: "#64748b" }}>{c.policyRuleId || "—"}<br />{c.policyReason || ""}</td>
-                  </tr>
-                ))
+                (() => {
+                  const maxEV = Math.max(...data.candidates.map((c: any) => parseFloat(c.expectedNetValue) || -Infinity));
+                  return data.candidates?.map((c: any, i: number) => {
+                    const isSelected = c.action === data.selectedAction;
+                    const isHighestEV = parseFloat(c.expectedNetValue) === maxEV;
+                    return (
+                      <tr key={i} style={{ borderTop: "1px solid #f1f5f9", background: isSelected ? "#dcfce7" : c.policyResult === "ALLOWED" ? "#f0fdf4" : c.policyResult === "ESCALATE" ? "#ffedd5" : "#fff", outline: isSelected ? "2px solid #16a34a" : "none" }}>
+                        <td style={{ padding: "8px 6px", fontWeight: 800 }}>
+                          {c.action} {isSelected && "★"} {isHighestEV && !isSelected && <span style={{ fontSize: 9, background: "#e0f2fe", padding: "1px 4px", borderRadius: 4 }}>highest EV</span>}
+                        </td>
+                        <td style={{ padding: "8px 6px" }}>{c.pEstimated ?? "—"}</td>
+                        <td style={{ padding: "8px 6px", fontWeight: 700 }}>{c.expectedNetValue ?? "—"}</td>
+                        <td style={{ padding: "8px 6px" }}>{c.operationalCost ?? "—"}</td>
+                        <td style={{ padding: "8px 6px", color: "#94a3b8" }}>{c.syntheticCustomerFrictionProxy ?? "—"}</td>
+                        <td style={{ padding: "8px 6px" }}>{c.riskPenalty ?? "—"}</td>
+                        <td style={{ padding: "8px 6px" }}>
+                          <span style={{ padding: "2px 6px", borderRadius: 6, fontSize: 10, fontWeight: 800, background: c.policyResult === "ALLOWED" ? "#dcfce7" : c.policyResult === "ESCALATE" ? "#ffedd5" : c.policyResult === "BLOCKED" ? "#fee2e2" : "#f3f4f6", color: c.policyResult === "ALLOWED" ? "#166534" : c.policyResult === "ESCALATE" ? "#9a3412" : "#374151" }}>
+                            {c.policyResult}
+                          </span>
+                        </td>
+                        <td style={{ padding: "8px 6px", fontSize: 10, color: "#64748b" }}>{c.policyRuleId || "—"}<br />{c.policyReason || ""}</td>
+                      </tr>
+                    );
+                  });
+                })()
               )}
             </tbody>
           </table>
         </div>
+        <details style={{ marginTop: 10, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: 8 }}>
+          <summary style={{ fontSize: 11, fontWeight: 700, cursor: "pointer", color: "#0f172a" }}>Estimator explainability</summary>
+          <div style={{ marginTop: 8, fontSize: 11, color: "#475569" }}>
+            {data.candidates?.[0]?.baseContribution == null ? (
+              <span>Estimator contribution breakdown was not persisted for this decision.</span>
+            ) : (
+              <div style={{ display: "grid", gap: 4 }}>
+                {data.candidates?.map((c: any, i: number) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", background: "#fff", padding: "4px 6px", borderRadius: 4, border: "1px solid #e2e8f0" }}>
+                    <span>{c.action}</span>
+                    <span>base:{c.baseContribution ?? "—"} ai:{c.aiContribution ?? "—"} ev:{c.evidenceModifier ?? "—"} hist:{c.historyModifier ?? "—"} elapsed:{c.elapsedModifier ?? "—"} final:{c.finalP ?? c.pEstimated}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </details>
       </div>
 
       <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
