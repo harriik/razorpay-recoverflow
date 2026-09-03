@@ -53,8 +53,8 @@ export default function DecisionPage() {
 
   if (loading) {
     return (
-      <main style={{ maxWidth: 1200, margin: "0 auto", padding: 24 }}>
-        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 24, textAlign: "center", color: "#64748b" }}>
+      <main style={{ maxWidth: 1200, margin: "0 auto", padding: 24 }} aria-live="polite" aria-busy="true">
+        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 24, textAlign: "center", color: "#64748b" }} role="status">
           Loading historical decision…
         </div>
       </main>
@@ -104,20 +104,43 @@ export default function DecisionPage() {
         <div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: "#0f172a", letterSpacing: -0.5 }}>Decision</h1>
-            <span style={{ background: isHistorical ? "#dcfce7" : "#fef3c7", color: isHistorical ? "#166534" : "#92400e", border: `1px solid ${isHistorical ? "#bbf7d0" : "#fde68a"}`, padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 800 }}>
+            <span style={{ background: isHistorical ? "#dcfce7" : "#fef3c7", color: isHistorical ? "#166534" : "#92400e", border: `1px solid ${isHistorical ? "#bbf7d0" : "#fde68a"}`, padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 800 }} aria-label={isHistorical ? "Historical decision snapshot" : "Not persisted"}>
               {isHistorical ? "HISTORICAL DECISION" : "NOT_PERSISTED"}
             </span>
-            <span style={{ background: "#f1f5f9", padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600, color: "#475569" }}>
+            <span style={{ background: "#f1f5f9", padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600, color: "#475569" }} aria-label="Case ID">
               {data.case.caseId.slice(0, 8)}…
             </span>
           </div>
           <div style={{ marginTop: 6, fontSize: 12, color: "#64748b" }}>
-            Case {data.case.caseId} • Amount ₹{Number(data.case.amount).toLocaleString("en-IN")} {data.case.currency} • Status {data.case.status}
+            Case {data.case.caseId} • Amount ₹{Number(data.case.amount).toLocaleString("en-IN")} {data.case.currency} • Status <strong style={{ color: "#0f172a" }}>{data.case.status}</strong>
           </div>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 12px", fontSize: 11, color: "#475569" }}>
+        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 12px", fontSize: 11, color: "#475569" }} aria-label="Version provenance">
           <div>AI: {data.versions?.aiProvider || "—"} / {data.versions?.aiModel || "—"}</div>
           <div>Policy: {data.versions?.policyVersion} • EV: {data.versions?.evVersion} • Estimator: {data.versions?.estimatorVersion}</div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
+        <div style={{ background: "#0f172a", color: "#fff", borderRadius: 12, padding: 16, border: "2px solid #1e293b" }} aria-label="Selected action">
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, opacity: 0.8 }}>SELECTED ACTION ★</div>
+          <div style={{ fontSize: 26, fontWeight: 900, marginTop: 6, letterSpacing: -0.5 }}>{data.selectedAction || "—"}</div>
+          <div style={{ fontSize: 11, opacity: 0.9, marginTop: 4 }}>Why: <strong>{data.selectionReason || "—"}</strong> • Policy: <strong>{(data.policySummary as any)?.selectedPolicyDecision || "—"}</strong></div>
+          <div style={{ fontSize: 13, marginTop: 8, background: "rgba(255,255,255,0.1)", padding: "6px 10px", borderRadius: 8, display: "inline-block" }}>Expected Net: <strong>₹{data.selectedExpectedNetValue ? Number(data.selectedExpectedNetValue).toLocaleString("en-IN") : "—"}</strong></div>
+          {data.aiAssessment?.recommendedAction && data.selectedAction !== data.aiAssessment.recommendedAction && (
+            <div style={{ marginTop: 8, background: "#fef3c7", color: "#92400e", padding: "6px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700 }}>
+              AI recommendation overridden by policy: {data.aiAssessment.recommendedAction} → {data.selectedAction}
+            </div>
+          )}
+        </div>
+        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#0f172a" }}>What happened?</div>
+          <div style={{ fontSize: 13, color: "#475569", marginTop: 6, lineHeight: 1.5 }}>
+            AI recommended <strong>{data.aiAssessment?.recommendedAction || "—"}</strong> with <strong>{data.aiAssessment?.evidenceQuality || "—"}</strong> evidence.
+            Policy <strong>{(data.policySummary as any)?.selectedRuleId || "DEFAULT_ALLOW"}</strong> allowed <strong>{data.selectedAction}</strong>.
+            {data.case.status === "UNKNOWN" ? " Awaiting reconciliation." : ` Final: ${data.case.status}.`}
+          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: "#64748b" }}>AI vs Policy vs Final • Answer in under 10 seconds</div>
         </div>
       </div>
 

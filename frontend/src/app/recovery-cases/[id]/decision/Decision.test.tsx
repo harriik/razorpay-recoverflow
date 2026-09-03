@@ -132,7 +132,6 @@ describe("Decision View C2-2", () => {
   });
 
   it("policy override indication", async () => {
-    // Mock case where AI recommends different from selected
     const mockOverride = {
       ...mockHistorical,
       aiAssessment: { ...mockHistorical.aiAssessment, recommendedAction: "SCHEDULE_RETRY" },
@@ -143,7 +142,7 @@ describe("Decision View C2-2", () => {
       vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(mockOverride) } as any))
     );
     render(<DecisionPage />);
-    await waitFor(() => expect(screen.getByText(/AI recommendation overridden by policy/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText((_, el) => el?.textContent?.includes("AI recommendation overridden by policy") ?? false).length).toBeGreaterThan(0));
   });
 
   it("NOT_PERSISTED state remains honest", async () => {
