@@ -19,6 +19,11 @@ export default async function Home() {
       <p style={{ color: "#555", marginTop: 8 }}>
         AI Revenue Recovery Decision &amp; Orchestration Engine — Phase 1 Bootstrap
       </p>
+      <div style={{ marginTop: 16 }}>
+        <a href="/failure-lab" style={{ background: "#111827", color: "#fff", padding: "10px 16px", borderRadius: 8, textDecoration: "none", fontWeight: 700, fontSize: 13 }}>
+          Open Failure Lab →
+        </a>
+      </div>
 
       <section
         style={{

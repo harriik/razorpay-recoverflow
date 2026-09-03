@@ -231,9 +231,11 @@ public class FailureLabService {
         int secondCallCount = mockGateway.getCallCount(key);
         RecoveryCase afterFirst = caseRepo.findById(caseId).orElseThrow();
         List<AuditEvent> audits = auditRepo.findByCaseIdOrderByCreatedAtAsc(caseId);
+        // Clarified: executionRequests 2, gatewayInvocations 1, duplicatesPrevented 1 (duplicate NOT counted as gateway call)
         return new FailureLabResult(sid, "DUPLICATE", caseId, before, afterFirst.getStatus().name(),
                 RecoveryActionType.RETRY_NOW.name(), null, dup, null,
-                "DUPLICATE_ACTION_PREVENTED", secondCallCount, "DUPLICATE", audits.stream().map(AuditEvent::getEventType).toList(), corr1.toString());
+                "DUPLICATE_ACTION_PREVENTED", 1, "DUPLICATE", audits.stream().map(AuditEvent::getEventType).toList(), corr1.toString(),
+                2, 1, 1, null);
     }
 
     private FailureLabResult runConcurrentExecution() {
@@ -263,9 +265,11 @@ public class FailureLabService {
         RecoveryCase after = caseRepo.findById(caseId).orElseThrow();
         List<AuditEvent> audits = auditRepo.findByCaseIdOrderByCreatedAtAsc(caseId);
         GatewayResult gw = r1.get() != null && r1.get().gatewayRef() != null ? new GatewayResult(GatewayStatus.SUCCESS, r1.get().gatewayRef(), key, null, false) : mockGateway.queryStatus(key);
+        // Clarified: 2 executionRequests, 1 gatewayInvocation, 1 duplicate/blocked
         return new FailureLabResult(sid, "CONCURRENT", caseId, before, after.getStatus().name(),
                 RecoveryActionType.RETRY_NOW.name(), null, gw, null,
-                "CONCURRENT", callCount, callCount == 1 ? "ONE_GATEWAY_CALL" : "MULTIPLE", audits.stream().map(AuditEvent::getEventType).toList(), UUID.randomUUID().toString());
+                "CONCURRENT", callCount, callCount == 1 ? "ONE_GATEWAY_CALL" : "MULTIPLE", audits.stream().map(AuditEvent::getEventType).toList(), UUID.randomUUID().toString(),
+                2, 1, 1, null);
     }
 
     private FailureLabResult runUnknownReconciliationSuccess() {
@@ -322,9 +326,11 @@ public class FailureLabService {
         int callCount = mockGateway.getCallCount(key);
         List<AuditEvent> audits = auditRepo.findByCaseIdOrderByCreatedAtAsc(caseId);
         GatewayResult gw = mockGateway.queryStatus(key);
+        // Policy blocked, gateway never called: executionRequests 1, gateway 0
         return new FailureLabResult(sid, "STALE_POLICY", caseId, before, after.getStatus().name(),
                 RecoveryActionType.RETRY_NOW.name(), null, gw, null,
-                "POLICY_REVALIDATION_FAILED", callCount, "BLOCKED", audits.stream().map(AuditEvent::getEventType).toList(), corr.toString());
+                "POLICY_REVALIDATION_FAILED", callCount, "BLOCKED", audits.stream().map(AuditEvent::getEventType).toList(), corr.toString(),
+                1, 0, 0, "STOP");
     }
 
     private FailureLabResult runCustomerOptOut() {
@@ -345,7 +351,8 @@ public class FailureLabService {
         GatewayResult gw = mockGateway.queryStatus(key);
         return new FailureLabResult(sid, "OPT_OUT", caseId, before, after.getStatus().name(),
                 RecoveryActionType.RETRY_NOW.name(), null, gw, null,
-                "POLICY_REVALIDATION_FAILED_OPT_OUT", callCount, "BLOCKED", audits.stream().map(AuditEvent::getEventType).toList(), corr.toString());
+                "POLICY_REVALIDATION_FAILED_OPT_OUT", callCount, "BLOCKED", audits.stream().map(AuditEvent::getEventType).toList(), corr.toString(),
+                1, 0, 0, "STOP");
     }
 
     private FailureLabResult runAiRecommendsBlockedAction() {
@@ -363,6 +370,7 @@ public class FailureLabService {
         GatewayResult gw = mockGateway.queryStatus(key);
         return new FailureLabResult(sid, "AI_BLOCKED", caseId, before, after.getStatus().name(),
                 RecoveryActionType.RETRY_NOW.name(), null, gw, null,
-                "POLICY_BLOCKED_AI_RECOMMENDATION", callCount, "BLOCKED", audits.stream().map(AuditEvent::getEventType).toList(), corr.toString());
+                "POLICY_BLOCKED_AI_RECOMMENDATION", callCount, "BLOCKED", audits.stream().map(AuditEvent::getEventType).toList(), corr.toString(),
+                1, 0, 0, "ESCALATE");
     }
 }
