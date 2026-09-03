@@ -209,8 +209,9 @@ class AnalyticsControllerTest {
     @Test
     void errorHandlingDoesNotReturnFakeZero() {
         EvaluationEngine mockEngine = mock(EvaluationEngine.class);
+        com.recoverflow.evaluation.AiQualityExperiment mockExp = mock(com.recoverflow.evaluation.AiQualityExperiment.class);
         when(mockEngine.runMultiSeed(anyList(), anyInt())).thenThrow(new RuntimeException("simulated evaluation failure"));
-        AnalyticsController ctrl = new AnalyticsController(mockEngine);
+        AnalyticsController ctrl = new AnalyticsController(mockEngine, mockExp);
         Exception ex = assertThrows(RuntimeException.class, () -> ctrl.analytics());
         assertTrue(ex.getMessage().contains("simulated evaluation failure"));
         // Ensure no fake map with 0 was returned

@@ -1,9 +1,11 @@
 package com.recoverflow.analytics;
 
+import com.recoverflow.evaluation.AiQualityExperiment;
 import com.recoverflow.evaluation.EvaluationEngine;
 import com.recoverflow.evaluation.EvaluationMetricsAggregator;
 import com.recoverflow.evaluation.EvaluationPartitions;
 import com.recoverflow.evaluation.MultiSeedResult;
+import com.recoverflow.synthetic.AiQuality;
 import java.math.BigDecimal;
 import java.util.*;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,9 +22,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AnalyticsController {
 
     private final EvaluationEngine engine;
+    private final AiQualityExperiment aiQualityExperiment;
 
-    public AnalyticsController(EvaluationEngine engine) {
+    public AnalyticsController(EvaluationEngine engine, AiQualityExperiment aiQualityExperiment) {
         this.engine = engine;
+        this.aiQualityExperiment = aiQualityExperiment;
     }
 
     @GetMapping
@@ -48,6 +52,8 @@ public class AnalyticsController {
         methodology.put("syntheticAiProxyVersion", EvaluationPartitions.SYNTHETIC_AI_PROXY_VERSION);
         methodology.put("trueValueVersion", EvaluationPartitions.TRUE_VALUE_VERSION);
         methodology.put("syntheticRegistryVersion", EvaluationPartitions.SYNTHETIC_WORLD_VERSION);
+        methodology.put("evVersion", "ev-v1");
+        methodology.put("decisionVersion", "decision-v1");
         methodology.put("datasetSizePerSeed", EvaluationPartitions.DATASET_SIZE_PER_SEED);
         methodology.put("datasetSizeTotalDevelopment", EvaluationPartitions.DEVELOPMENT.size() * EvaluationPartitions.DATASET_SIZE_PER_SEED);
         methodology.put("datasetSizeTotalHeldOut", EvaluationPartitions.HELD_OUT.size() * EvaluationPartitions.DATASET_SIZE_PER_SEED);
@@ -93,6 +99,19 @@ public class AnalyticsController {
         heldOutMap.put("seedInfo", "10 seeds 30000-30009, 200 per seed = 2000 cases");
         heldOutMap.put("totalCases", heldOut.aggregatedRevenue().attempts());
 
+        // Partitions detailed maps for /evaluation (each with full metrics)
+        Map<String, Object> devPartition = toPartitionMap(development, "DEVELOPMENT");
+        Map<String, Object> valPartition = toPartitionMap(validation, "VALIDATION");
+        Map<String, Object> heldPartition = toPartitionMap(heldOut, "HELD_OUT");
+
+        Map<String, Object> partitions = new LinkedHashMap<>();
+        partitions.put("DEVELOPMENT", devPartition);
+        partitions.put("VALIDATION", valPartition);
+        partitions.put("HELD_OUT", heldPartition);
+
+        // AI quality experiment — same worlds, only proxy quality varies (LOW/MEDIUM/HIGH ~44/65/77 measured)
+        Map<String, Object> aiQuality = buildAiQualityMap();
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("syntheticLabel", "SYNTHETIC EVALUATION");
         result.put("note", "All revenue is synthetic recovered revenue, not real merchant revenue.");
@@ -102,9 +121,12 @@ public class AnalyticsController {
         result.put("aiBehavior", aiBehavior);
         result.put("comparison", comparison);
         result.put("heldOut", heldOutMap);
-        result.put("validation", Map.of("revenue", revenueVal, "decisionQuality", dqVal, "aiBehavior", aiVal));
+        result.put("validation", Map.of("revenue", revenueVal, "decisionQuality", dqVal, "aiBehavior", aiVal,
+                "winCount", validation.winCount(), "lossCount", validation.lossCount(), "tieCount", validation.tieCount(),
+                "seedCount", validation.seedCount(), "caseCount", validation.aggregatedRevenue().attempts()));
         result.put("development", Map.of(
                 "seedCount", development.seedCount(),
+                "caseCount", development.aggregatedRevenue().attempts(),
                 "meanRecoverFlowRevenue", development.meanRecoverFlowRevenue(),
                 "medianRecoverFlowRevenue", development.medianRecoverFlowRevenue(),
                 "meanBaselineBRevenue", development.meanBaselineBRevenue(),
@@ -113,6 +135,8 @@ public class AnalyticsController {
                 "lossCount", development.lossCount(),
                 "tieCount", development.tieCount()
         ));
+        result.put("partitions", partitions);
+        result.put("aiQuality", aiQuality);
         // Also expose raw aggregated for transparency
         result.put("aggregatedRevenue", revenue);
         return result;
@@ -195,5 +219,80 @@ public class AnalyticsController {
         map.put("hurtRate", ai.aiHurtRate());
         map.put("neutralRate", ai.aiNeutralRate());
         return map;
+    }
+
+    private Map<String, Object> toPartitionMap(MultiSeedResult r, String label) {
+        Map<String, Object> revenue = toRevenueMap(r.aggregatedRevenue(), sumBaselineA(r), sumBaselineB(r));
+        Map<String, Object> dq = toDecisionQualityMap(r.decisionQuality());
+        Map<String, Object> ai = toAiBehaviorMap(r.aiDecision(), r.aggregatedRevenue().attempts());
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("label", label);
+        map.put("seedCount", r.seedCount());
+        map.put("caseCount", r.aggregatedRevenue().attempts());
+        map.put("recoveredRevenue", r.aggregatedRevenue().recoveredRevenue());
+        map.put("baselineARecovered", sumBaselineA(r));
+        map.put("baselineBRecovered", sumBaselineB(r));
+        map.put("absoluteRevenueDelta", r.aggregatedRevenue().absoluteRecoveredRevenueDelta());
+        map.put("relativeRevenueLift", r.aggregatedRevenue().relativeAiLift());
+        map.put("meanTrueRegretPolicyOnly", r.decisionQuality().policyOnlyMeanTrueRegret());
+        map.put("meanTrueRegretRecoverFlow", r.decisionQuality().recoverFlowMeanTrueRegret());
+        map.put("medianTrueRegretPolicyOnly", r.decisionQuality().policyOnlyMedianTrueRegret());
+        map.put("medianTrueRegretRecoverFlow", r.decisionQuality().recoverFlowMedianTrueRegret());
+        map.put("regretReduction", r.decisionQuality().regretDelta());
+        map.put("relativeRegretReduction", r.decisionQuality().relativeRegretReduction());
+        map.put("actionChangeRate", r.aiDecision().actionChangeRate());
+        map.put("helpRate", r.aiDecision().aiHelpRate());
+        map.put("hurtRate", r.aiDecision().aiHurtRate());
+        map.put("neutralRate", r.aiDecision().aiNeutralRate());
+        map.put("winCount", r.winCount());
+        map.put("lossCount", r.lossCount());
+        map.put("tieCount", r.tieCount());
+        map.put("revenue", revenue);
+        map.put("decisionQuality", dq);
+        map.put("aiBehavior", ai);
+        map.put("meanRecoverFlowRevenue", r.meanRecoverFlowRevenue());
+        map.put("meanBaselineBRevenue", r.meanBaselineBRevenue());
+        map.put("meanBaselineARevenue", r.meanBaselineARevenue());
+        return map;
+    }
+
+    private Map<String, Object> buildAiQualityMap() {
+        try {
+            var exp = aiQualityExperiment.run(EvaluationPartitions.DEVELOPMENT, EvaluationPartitions.DATASET_SIZE_PER_SEED);
+            Map<String, Object> out = new LinkedHashMap<>();
+            for (AiQuality q : AiQuality.values()) {
+                var qr = exp.byQuality().get(q);
+                if (qr == null) continue;
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("quality", q.name());
+                m.put("measuredAccuracy", qr.measuredAccuracy());
+                m.put("recoveredRevenue", qr.recoveredRevenue());
+                m.put("revenueDeltaVsPolicy", qr.revenueDeltaVsPolicy());
+                m.put("relativeRevenueLift", qr.relativeRevenueLift());
+                m.put("meanRegret", qr.decisionQuality().recoverFlowMeanTrueRegret());
+                m.put("meanRegretPolicyOnly", qr.decisionQuality().policyOnlyMeanTrueRegret());
+                m.put("medianRegret", qr.decisionQuality().recoverFlowMedianTrueRegret());
+                m.put("regretDelta", qr.decisionQuality().regretDelta());
+                m.put("relativeRegretReduction", qr.decisionQuality().relativeRegretReduction());
+                m.put("helpRate", qr.aiDecision().aiHelpRate());
+                m.put("hurtRate", qr.aiDecision().aiHurtRate());
+                m.put("neutralRate", qr.aiDecision().aiNeutralRate());
+                m.put("actionChangeRate", qr.aiDecision().actionChangeRate());
+                m.put("totalCases", qr.totalCases());
+                m.put("decisionQuality", toDecisionQualityMap(qr.decisionQuality()));
+                m.put("aiBehavior", toAiBehaviorMap(qr.aiDecision(), qr.totalCases()));
+                out.put(q.name(), m);
+            }
+            out.put("policyOnlyRecovered", exp.policyOnlyRecovered());
+            out.put("policyOnlyDecisionQuality", toDecisionQualityMap(exp.policyOnlyDecisionQuality()));
+            out.put("experimentSeeds", "10000-10029 (DEVELOPMENT, 30 seeds, 200 per seed)");
+            out.put("note", "Accuracy shown is measured true-category accuracy of the synthetic observable-only AI proxy under this evaluation configuration.");
+            return out;
+        } catch (Exception e) {
+            Map<String, Object> err = new LinkedHashMap<>();
+            err.put("error", e.getMessage());
+            err.put("note", "AI quality experiment failed — no fake values returned");
+            return err;
+        }
     }
 }
