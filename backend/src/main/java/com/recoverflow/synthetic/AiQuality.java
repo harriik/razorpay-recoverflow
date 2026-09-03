@@ -2,8 +2,13 @@ package com.recoverflow.synthetic;
 
 /**
  * Configurable AI proxy quality levels for sanity experiment.
- * Each level targets an approximate failure-category accuracy, measured not assumed.
- * LOW ~50%, MEDIUM ~75%, HIGH ~90%. Deterministic seeded behavior.
+ * Measured true-category accuracy (not proxy-target) is reported from experiment:
+ * LOW — approximately 44% measured true-category accuracy
+ * MEDIUM — approximately 65% measured true-category accuracy
+ * HIGH — approximately 77% measured true-category accuracy
+ * Proxy target against observable gateway is 50%/75%/90%, but due to noisy observable
+ * gateway (85% correlated with hidden truth) true-category measured is lower (~44/65/77).
+ * Deterministic seeded behavior; exact measured must come from experiment output.
  */
 public enum AiQuality {
     LOW(0.50, "synthetic-ai-quality-low-v1"),

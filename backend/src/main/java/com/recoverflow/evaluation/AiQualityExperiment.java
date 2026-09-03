@@ -28,6 +28,10 @@ import org.springframework.stereotype.Component;
  * AI-quality sanity experiment: compares LOW/MEDIUM/HIGH synthetic AI quality
  * on the SAME hidden worlds, seeds, cases, P_true, groundTruth, policy, estimator, EV.
  * Only AI proxy quality changes. Uses development/validation seeds, never held-out.
+ * Measured true-category accuracies are approximately 44%/65%/77% (LOW/MEDIUM/HIGH)
+ * due to noisy observable gateway (85% correlated with hidden truth); proxy targets
+ * 50%/75%/90% against observable gateway. Exact measured accuracy must be reported
+ * from experiment output, not assumed.
  */
 @Component
 public class AiQualityExperiment {

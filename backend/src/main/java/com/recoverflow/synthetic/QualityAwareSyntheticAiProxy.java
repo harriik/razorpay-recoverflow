@@ -17,7 +17,9 @@ import java.util.Random;
  * Quality-aware synthetic AI proxy for AI-quality sanity experiment.
  * Still observable-only: receives ONLY ObservableContext + quality config.
  * Never receives HiddenTruth, P_true, groundTruthOutcomes, latentRecoveryPropensity, trueFailureCategory.
- * Quality is controlled via target accuracy for failure-category, with deterministic seeded noise.
+ * Quality is controlled via proxy-target 50%/75%/90% against observable gateway;
+ * measured true-category accuracy (due to noisy observable gateway 85% correlated with hidden truth)
+ * is approximately 44%/65%/77% and must be measured from experiment output, not assumed.
  */
 public class QualityAwareSyntheticAiProxy {
 
@@ -41,8 +43,8 @@ public class QualityAwareSyntheticAiProxy {
         // But we need to adjust failureCategory accuracy to match quality target
         FailureCategory observedCat = mapGatewayToCategory(obs.gatewayCode());
         double accuracy = quality.targetAccuracy();
-        // No bucket adjustments for quality experiment — keep measured close to target ~50/75/90
-        // Clamp to valid range
+        // Proxy target 50/75/90 against observable gateway; measured true-category ~44/65/77 due to 85% gateway-truth correlation.
+        // No extra bucket adjustments — keep deterministic and measurable.
         if (accuracy < 0.30) accuracy = 0.30;
         if (accuracy > 0.95) accuracy = 0.95;
 
