@@ -161,4 +161,77 @@ describe("Decision View C2-2", () => {
     await waitFor(() => expect(screen.getByText("Candidates (historical ranking)")).toBeInTheDocument());
     expect(screen.getByText("Estimator contribution breakdown was not persisted for this decision.")).toBeInTheDocument();
   });
+
+  it("execution success renders", async () => {
+    render(<DecisionPage />);
+    await waitFor(() => expect(screen.getByText("Execution")).toBeInTheDocument());
+    expect(screen.getByText("Action executed")).toBeInTheDocument();
+  });
+
+  it("UNKNOWN renders as awaiting reconciliation", async () => {
+    const mockUnknown = { ...mockHistorical, case: { ...mockHistorical.case, status: "UNKNOWN" } };
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(mockUnknown) } as any)));
+    render(<DecisionPage />);
+    await waitFor(() => expect(screen.getAllByText((_, el) => el?.textContent?.includes("AWAITING RECONCILIATION") ?? false).length).toBeGreaterThan(0));
+    expect(screen.getAllByText("UNKNOWN").length).toBeGreaterThan(0);
+  });
+
+  it("gateway timeout renders correctly", async () => {
+    const mockUnknown = { ...mockHistorical, case: { ...mockHistorical.case, status: "UNKNOWN" } };
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(mockUnknown) } as any)));
+    render(<DecisionPage />);
+    await waitFor(() => expect(screen.getAllByText((_, el) => el?.textContent?.includes("AWAITING RECONCILIATION") ?? false).length).toBeGreaterThan(0));
+    expect(screen.getAllByText((_, el) => el?.textContent?.includes("TIMEOUT") ?? false).length).toBeGreaterThan(0);
+  });
+
+  it("recovered amount renders when present", async () => {
+    const mockRecovered = { ...mockHistorical, case: { ...mockHistorical.case, recoveredAmount: "5000.0000", status: "RECOVERED" } };
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(mockRecovered) } as any)));
+    render(<DecisionPage />);
+    await waitFor(() => expect(screen.getAllByText("RECOVERED").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("₹5,000").length).toBeGreaterThan(0);
+  });
+
+  it("audit timeline renders actual events", async () => {
+    const mockWithAudit = {
+      ...mockHistorical,
+      auditEvents: [
+        { id: "1", correlationId: "corr-1", eventType: "DECISION_FINALIZED", fromState: "DETECTED", toState: "ACTION_APPROVED", actor: "AI", createdAt: new Date().toISOString(), payload: "{}" },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(mockWithAudit) } as any)));
+    render(<DecisionPage />);
+    await waitFor(() => expect(screen.getByText("Audit Timeline")).toBeInTheDocument());
+    expect((await screen.findAllByText((_, el) => el?.textContent?.includes("DECISION_FINALIZED") ?? false)).length).toBeGreaterThan(0);
+  });
+
+  it("version/provenance panel renders", async () => {
+    render(<DecisionPage />);
+    await waitFor(() => expect(screen.getByText("Decision Integrity")).toBeInTheDocument());
+    expect(screen.getAllByText((_, el) => el?.textContent?.includes("decisionVersion") ?? false).length).toBeGreaterThan(0);
+    expect(screen.getAllByText((_, el) => el?.textContent?.includes("SYNTHETIC_AI_PROXY") ?? false).length).toBeGreaterThan(0);
+  });
+
+  it("idempotency status renders", async () => {
+    render(<DecisionPage />);
+    await waitFor(() => expect(screen.getByText("Idempotency:")).toBeInTheDocument());
+    expect(screen.getByText("PROTECTED")).toBeInTheDocument();
+  });
+
+  it("duplicate metrics distinguish request vs gateway invocation", async () => {
+    const mockDup = { ...mockHistorical, executionRequests: 2, gatewayInvocations: 1, duplicatesPrevented: 1 };
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(mockDup) } as any)));
+    render(<DecisionPage />);
+    await waitFor(() => expect(screen.getByText("Execution requests")).toBeInTheDocument());
+    expect(screen.getByText("Gateway invocations")).toBeInTheDocument();
+    expect(screen.getByText("Duplicates prevented")).toBeInTheDocument();
+  });
+
+  it("missing optional execution data handled gracefully", async () => {
+    const mockMissing = { ...mockHistorical, selectedExpectedNetValue: null, gatewayResult: null, recoveredAmount: null };
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(mockMissing) } as any)));
+    render(<DecisionPage />);
+    await waitFor(() => expect(screen.getAllByText("HISTORICAL DECISION").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
 });

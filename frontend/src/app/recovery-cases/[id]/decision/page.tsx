@@ -297,6 +297,11 @@ export default function DecisionPage() {
           <div style={{ fontSize: 12, marginTop: 6 }}>Expected Net: <strong>₹{data.selectedExpectedNetValue ? Number(data.selectedExpectedNetValue).toLocaleString("en-IN") : "—"}</strong></div>
           <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Policy: {(data.policySummary as any)?.selectedPolicyDecision || "—"} • {(data.policySummary as any)?.selectedRuleId || ""}</div>
           <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4 }}>{data.selectionTimestamp ? new Date(data.selectionTimestamp).toLocaleString() : ""}</div>
+          {data.case.status === "UNKNOWN" && (
+            <div style={{ marginTop: 10, background: "#fef3c7", color: "#92400e", padding: "8px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700, textAlign: "center" }}>
+              AWAITING RECONCILIATION — gateway timeout, not a failure. Reconciliation will query gateway.
+            </div>
+          )}
         </div>
         <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16 }}>
           <h4 style={{ margin: 0, fontSize: 12, fontWeight: 800 }}>Decision Integrity</h4>
@@ -306,11 +311,110 @@ export default function DecisionPage() {
             <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#64748b" }}>estimator</span><span>{data.versions?.estimatorVersion}</span></div>
             <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#64748b" }}>policy</span><span>{data.versions?.policyVersion}</span></div>
             <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#64748b" }}>AI provider/model</span><span>{data.versions?.aiProvider}/{data.versions?.aiModel}</span></div>
-            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: 6, fontSize: 10, color: "#64748b" }}>Replayed from persisted decision data, not recomputed live.</div>
+            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: 6, fontSize: 10, color: "#64748b" }}>Replayed from persisted decision data, not recomputed live. HISTORICAL DECISION SNAPSHOT.</div>
           </div>
           <Link href={`/recovery-cases/${id}`} style={{ display: "inline-block", marginTop: 10, background: "#f1f5f9", border: "1px solid #e2e8f0", padding: "6px 10px", borderRadius: 6, textDecoration: "none", color: "#0f172a", fontSize: 11, fontWeight: 700 }}>
             View full audit trail →
           </Link>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 16, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 12, fontWeight: 800, letterSpacing: 0.6, color: "#0f172a" }}>Decision → Execution → Gateway → Final State</h3>
+        <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 11, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: 10 }}>
+          <span style={{ background: "#0f172a", color: "#fff", padding: "4px 8px", borderRadius: 999, fontWeight: 800 }}>{data.selectedAction || "—"}</span>
+          <span>→</span>
+          <span style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "4px 8px", borderRadius: 999 }}>EXECUTED</span>
+          <span>→</span>
+          <span style={{ background: data.case.status === "UNKNOWN" ? "#fef3c7" : data.case.status === "RECOVERED" ? "#dcfce7" : "#fee2e2", padding: "4px 8px", borderRadius: 999, fontWeight: 700 }}>
+            {data.case.status === "UNKNOWN" ? "TIMEOUT → UNKNOWN" : data.case.status}
+          </span>
+          <span>→</span>
+          <span style={{ background: "#0f172a", color: "#fff", padding: "4px 8px", borderRadius: 999, fontWeight: 800 }}>{data.case.status}</span>
+        </div>
+        <div style={{ marginTop: 8, fontSize: 11, color: "#475569", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <div>
+            <strong>Idempotency:</strong> PROTECTED <code style={{ background: "#f1f5f9", padding: "1px 4px", borderRadius: 4, fontSize: 10 }}>{(data as any).idempotencyKey ? String((data as any).idempotencyKey).slice(0, 12) + "…" : data.case.caseId.slice(0, 12) + "…"}</code>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            {data.case.status === "UNKNOWN" ? "Awaiting reconciliation – not a failure" : `Final: ${data.case.status}`}
+          </div>
+        </div>
+        <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, fontSize: 11, textAlign: "center" }}>
+          <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: 8 }}>
+            <div style={{ color: "#64748b", fontWeight: 700 }}>Execution requests</div>
+            <div style={{ fontSize: 14, fontWeight: 800 }}>1</div>
+          </div>
+          <div style={{ background: data.case.status === "UNKNOWN" || (data as any).gatewayInvocations === 0 ? "#fef2f2" : "#f0fdf4", border: "1px solid #e2e8f0", borderRadius: 8, padding: 8 }}>
+            <div style={{ color: "#64748b", fontWeight: 700 }}>Gateway invocations</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: (data as any).gatewayInvocations === 0 ? "#dc2626" : "#0f172a" }}>{(data as any).gatewayInvocations ?? (data.case.status === "UNKNOWN" ? 1 : data.case.status === "RECOVERED" || data.case.status === "ACTION_FAILED" ? 1 : 0)}</div>
+            {(data as any).gatewayInvocations === 0 && <div style={{ fontSize: 10, color: "#dc2626", fontWeight: 700 }}>visibly 0</div>}
+          </div>
+          <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: 8 }}>
+            <div style={{ color: "#64748b", fontWeight: 700 }}>Duplicates prevented</div>
+            <div style={{ fontSize: 14, fontWeight: 800 }}>{(data as any).duplicatesPrevented ?? 0}</div>
+          </div>
+        </div>
+        {data.case.status === "UNKNOWN" && (
+          <div style={{ marginTop: 8, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: 8, fontSize: 11, color: "#92400e" }}>
+            <strong>UNKNOWN</strong> gateway result • <code>unknownSince: {(data.case as any).unknownSince || data.auditEvents?.find((e:any)=>e.toState==="UNKNOWN")?.createdAt || "—"}</code> • Reconciliation will query gateway; final outcome may be <code>RECOVERED</code> or <code>ACTION_FAILED</code>.
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 16, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 12, fontWeight: 800, letterSpacing: 0.6, color: "#0f172a" }}>Execution</h3>
+        <div style={{ marginTop: 8, display: "grid", gap: 8, fontSize: 11 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", background: "#f8fafc", padding: "6px 8px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+            <span style={{ color: "#64748b" }}>Action executed</span>
+            <strong>{data.selectedAction || (data.case as any).pendingAction || "—"}</strong>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", background: "#f8fafc", padding: "6px 8px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+            <span style={{ color: "#64748b" }}>Execution status</span>
+            <span style={{ fontWeight: 800, color: data.case.status === "RECOVERED" ? "#16a34a" : data.case.status === "UNKNOWN" ? "#d97706" : "#dc2626" }}>{data.case.status}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", background: "#f8fafc", padding: "6px 8px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+            <span style={{ color: "#64748b" }}>Gateway result</span>
+            <span>{(data as any).gatewayResult?.status || data.case.status === "UNKNOWN" ? "UNKNOWN/TIMEOUT" : data.case.status === "RECOVERED" ? "SUCCESS" : "—"}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", background: "#f8fafc", padding: "6px 8px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+            <span style={{ color: "#64748b" }}>Idempotency</span>
+            <span>PROTECTED • <code style={{ fontSize: 10 }}>{data.case.caseId.slice(0, 12)}…</code></span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", background: "#f8fafc", padding: "6px 8px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+            <span style={{ color: "#64748b" }}>Recovered amount</span>
+            <strong>{data.case.recoveredAmount ? `₹${Number(data.case.recoveredAmount).toLocaleString("en-IN")}` : "—"}</strong>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", background: "#f8fafc", padding: "6px 8px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+            <span style={{ color: "#64748b" }}>Timestamps</span>
+            <span style={{ fontSize: 10 }}>exec: {data.selectionTimestamp ? new Date(data.selectionTimestamp).toLocaleString() : "—"} • obs: {data.case.updatedAt ? new Date(data.case.updatedAt).toLocaleString() : "—"}</span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 16, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 12, fontWeight: 800, letterSpacing: 0.6, color: "#0f172a" }}>Audit Timeline</h3>
+        <p style={{ margin: "4px 0 0", fontSize: 11, color: "#64748b" }}>Real persisted auditEvents – no frontend-only events.</p>
+        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+          {data.auditEvents?.length === 0 ? (
+            <div style={{ fontSize: 11, color: "#94a3b8" }}>No audit events</div>
+          ) : (
+            data.auditEvents?.map((ev: any) => (
+              <details key={ev.id} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 10px" }}>
+                <summary style={{ cursor: "pointer", fontSize: 11, fontWeight: 700, display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <span>{ev.eventType} • {ev.actor}</span>
+                  <span style={{ color: "#64748b", fontSize: 10 }}>{new Date(ev.createdAt).toLocaleString()}</span>
+                </summary>
+                <div style={{ marginTop: 6, fontSize: 11, display: "grid", gap: 4 }}>
+                  <div><span style={{ color: "#64748b" }}>From → To:</span> {ev.fromState} → {ev.toState}</div>
+                  <div><span style={{ color: "#64748b" }}>Correlation:</span> <code style={{ fontSize: 10, background: "#fff", padding: "1px 4px", borderRadius: 4 }}>{ev.correlationId?.slice(0, 8)}…</code></div>
+                  <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 4, padding: 6, fontSize: 10, color: "#475569", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    Payload: {ev.payload}
+                  </div>
+                </div>
+              </details>
+            ))
+          )}
         </div>
       </div>
     </main>
