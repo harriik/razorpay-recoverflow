@@ -237,9 +237,14 @@ export default function DecisionPage() {
       <div style={{ marginTop: 16, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16 }}>
         <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: "#0f172a" }}>Candidates (historical ranking)</h3>
         <p style={{ margin: "4px 0 0", fontSize: 11, color: "#64748b" }}>Sorted by authoritative stored decision ranking – not recomputed. Do not fabricate P_estimated.</p>
-        {data.aiAssessment?.recommendedAction && data.selectedAction && data.aiAssessment.recommendedAction !== data.selectedAction && (
-          <div style={{ marginTop: 8, background: "#fffbeb", border: "1px solid #fde68a", padding: "8px 10px", borderRadius: 8, fontSize: 11, color: "#92400e" }}>
-            <strong>AI recommendation overridden by policy:</strong> AI recommended <strong>{data.aiAssessment.recommendedAction}</strong> → Policy <strong>{data.candidates?.find((c:any)=>c.action===data.selectedAction)?.policyResult || "BLOCKED"}</strong> → Selected <strong>{data.selectedAction}</strong> (rule {(data.candidates?.find((c:any)=>c.action===data.aiAssessment.recommendedAction)?.policyRuleId) || "—"})
+        {(() => {
+          const aiRec = data.aiAssessment?.recommendedAction;
+          const aiRecCandidate = data.candidates?.find((c: any) => c.action === aiRec);
+          const isPolicyBlocked = aiRecCandidate && ["BLOCKED", "ESCALATE", "STOP"].includes(aiRecCandidate.policyResult);
+          return aiRec && data.selectedAction && aiRec !== data.selectedAction && isPolicyBlocked;
+        })() && (
+          <div data-testid="policy-override-banner" style={{ marginTop: 8, background: "#fffbeb", border: "1px solid #fde68a", padding: "8px 10px", borderRadius: 8, fontSize: 11, color: "#92400e" }}>
+            <strong>AI recommendation overridden by policy:</strong> AI recommended <strong>{data.aiAssessment.recommendedAction}</strong> → Policy <strong>{(data.candidates?.find((c: any) => c.action === data.aiAssessment.recommendedAction)?.policyResult) || "BLOCKED"}</strong> → Selected <strong>{data.selectedAction}</strong> (rule {(data.candidates?.find((c: any) => c.action === data.aiAssessment.recommendedAction)?.policyRuleId) || "—"})
           </div>
         )}
         <div style={{ marginTop: 10, overflowX: "auto" }}>

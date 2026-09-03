@@ -136,13 +136,38 @@ describe("Decision View C2-2", () => {
       ...mockHistorical,
       aiAssessment: { ...mockHistorical.aiAssessment, recommendedAction: "SCHEDULE_RETRY" },
       selectedAction: "RETRY_NOW",
+      candidates: [
+        { action: "RETRY_NOW", pEstimated: "0.5000", expectedNetValue: "100.0000", operationalCost: "0.0000", syntheticCustomerFrictionProxy: "50.0000", riskPenalty: "5.0000", policyResult: "ALLOWED", policyRuleId: "DEFAULT_ALLOW", policyReason: "permissible", baseContribution: null, aiContribution: null, evidenceModifier: null, recoverabilityModifier: null, historyModifier: null, elapsedModifier: null, finalP: "0.5000" },
+        { action: "SCHEDULE_RETRY", pEstimated: "0.6000", expectedNetValue: "110.0000", operationalCost: "0.0000", syntheticCustomerFrictionProxy: "20.0000", riskPenalty: "5.0000", policyResult: "BLOCKED", policyRuleId: "RETRY_LIMIT", policyReason: "retry_limit_exceeded", baseContribution: null, aiContribution: null, evidenceModifier: null, recoverabilityModifier: null, historyModifier: null, elapsedModifier: null, finalP: "0.6000" },
+      ],
     };
     vi.stubGlobal(
       "fetch",
       vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(mockOverride) } as any))
     );
     render(<DecisionPage />);
-    await waitFor(() => expect(screen.getAllByText((_, el) => el?.textContent?.includes("AI recommendation overridden by policy") ?? false).length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getByTestId("policy-override-banner")).toBeInTheDocument());
+  });
+
+  it("EV selection does not show policy override", async () => {
+    // EV selection case: AI SCHEDULE_RETRY ALLOWED, but RETRY_NOW has higher EV, selected RETRY_NOW – NOT a policy override
+    const mockEvSelection = {
+      ...mockHistorical,
+      aiAssessment: { ...mockHistorical.aiAssessment, recommendedAction: "SCHEDULE_RETRY" },
+      selectedAction: "RETRY_NOW",
+      candidates: [
+        { action: "RETRY_NOW", pEstimated: "0.5000", expectedNetValue: "100.0000", operationalCost: "0.0000", syntheticCustomerFrictionProxy: "50.0000", riskPenalty: "5.0000", policyResult: "ALLOWED", policyRuleId: "DEFAULT_ALLOW", policyReason: "permissible", baseContribution: null, aiContribution: null, evidenceModifier: null, recoverabilityModifier: null, historyModifier: null, elapsedModifier: null, finalP: "0.5000" },
+        { action: "SCHEDULE_RETRY", pEstimated: "0.4000", expectedNetValue: "90.0000", operationalCost: "0.0000", syntheticCustomerFrictionProxy: "20.0000", riskPenalty: "5.0000", policyResult: "ALLOWED", policyRuleId: "DEFAULT_ALLOW", policyReason: "permissible", baseContribution: null, aiContribution: null, evidenceModifier: null, recoverabilityModifier: null, historyModifier: null, elapsedModifier: null, finalP: "0.4000" },
+      ],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(mockEvSelection) } as any))
+    );
+    render(<DecisionPage />);
+    await waitFor(() => expect(screen.getAllByText("HISTORICAL DECISION").length).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByTestId("policy-override-banner")).toBeNull();
   });
 
   it("NOT_PERSISTED state remains honest", async () => {
