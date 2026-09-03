@@ -54,7 +54,7 @@ export default function DecisionPage() {
   if (loading) {
     return (
       <main style={{ maxWidth: 1200, margin: "0 auto", padding: 24 }} aria-live="polite" aria-busy="true">
-        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 24, textAlign: "center", color: "#64748b" }} role="status">
+        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 24, textAlign: "center", color: "#64748b" }} role="status" aria-label="Loading decision">
           Loading historical decision…
         </div>
       </main>
@@ -95,8 +95,8 @@ export default function DecisionPage() {
   const hasSnapshot = aiStatus !== "NOT_PERSISTED";
 
   return (
-    <main style={{ maxWidth: 1280, margin: "0 auto", padding: 24 }}>
-      <Link href={`/recovery-cases/${id}`} style={{ color: "#2563eb", textDecoration: "none", fontSize: 13, fontWeight: 600 }}>
+    <main style={{ maxWidth: 1280, margin: "0 auto", padding: 24, overflowX: "hidden" }}>
+      <Link href={`/recovery-cases/${id}`} style={{ color: "#2563eb", textDecoration: "none", fontSize: 13, fontWeight: 600 }} aria-label="Back to case detail">
         ← Back to case
       </Link>
 
