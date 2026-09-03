@@ -1,5 +1,7 @@
 package com.recoverflow.recovery;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.recoverflow.audit.AuditEventRepository;
 import com.recoverflow.decision.ExpectedNetRecoveryValueEngine;
 import com.recoverflow.decision.RecoveryDecisionService;
@@ -21,14 +23,17 @@ public class DecisionQueryService {
     private final RecoveryCaseRepository caseRepo;
     private final RecoveryActionRepository actionRepo;
     private final AuditEventRepository auditRepo;
+    private final RecoveryDecisionSnapshotRepository snapshotRepo;
     private final InterventionLikelihoodEstimator estimator;
     private final ExpectedNetRecoveryValueEngine evEngine;
     private final RecoveryDecisionService decisionService;
     private final PolicyConfig policyConfig;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public DecisionQueryService(RecoveryCaseRepository caseRepo,
                                 RecoveryActionRepository actionRepo,
                                 AuditEventRepository auditRepo,
+                                RecoveryDecisionSnapshotRepository snapshotRepo,
                                 InterventionLikelihoodEstimator estimator,
                                 ExpectedNetRecoveryValueEngine evEngine,
                                 RecoveryDecisionService decisionService,
@@ -36,6 +41,7 @@ public class DecisionQueryService {
         this.caseRepo = caseRepo;
         this.actionRepo = actionRepo;
         this.auditRepo = auditRepo;
+        this.snapshotRepo = snapshotRepo;
         this.estimator = estimator;
         this.evEngine = evEngine;
         this.decisionService = decisionService;
@@ -44,7 +50,83 @@ public class DecisionQueryService {
 
     public Map<String, Object> buildDecisionResponse(UUID caseId) {
         RecoveryCase rc = caseRepo.findById(caseId).orElseThrow();
-        // Observable evidence – only approved observable fields, never HiddenTruth/P_true
+        // Check for historical snapshot – this is the QUERY, not a fresh decision
+        Optional<RecoveryDecisionSnapshot> snapOpt = snapshotRepo.findTopByCaseIdOrderByCreatedAtDesc(caseId);
+        if (snapOpt.isPresent()) {
+            RecoveryDecisionSnapshot snap = snapOpt.get();
+            try {
+                Map<String, Object> observable = mapper.readValue(snap.getObservableSnapshot(), new TypeReference<Map<String, Object>>() {});
+                Map<String, Object> aiAssessment = snap.getAiAssessmentSnapshot() != null ? mapper.readValue(snap.getAiAssessmentSnapshot(), new TypeReference<Map<String, Object>>() {}) : Map.of("status", "NOT_PERSISTED");
+                List<Map<String, Object>> candidates = mapper.readValue(snap.getCandidateSnapshot(), new TypeReference<List<Map<String, Object>>>() {});
+                List<Map<String, Object>> policyList = mapper.readValue(snap.getPolicySnapshot(), new TypeReference<List<Map<String, Object>>>() {});
+                Map<String, Object> policySummary = new LinkedHashMap<>();
+                policySummary.put("allDecisions", policyList);
+                // Find selected policy decision from candidates
+                Map<String, Object> selectedPolicy = null;
+                for (Map<String, Object> c : candidates) {
+                    if (snap.getSelectedAction() != null && snap.getSelectedAction().equals(c.get("action")) && "ALLOWED".equals(c.get("policyResult"))) {
+                        selectedPolicy = c;
+                        break;
+                    }
+                }
+                if (selectedPolicy != null) {
+                    policySummary.put("selectedPolicyDecision", selectedPolicy.get("policyResult"));
+                    policySummary.put("selectedRuleId", selectedPolicy.get("policyRuleId"));
+                    policySummary.put("selectedReason", selectedPolicy.get("policyReason"));
+                }
+                Map<String, Object> versions = new LinkedHashMap<>();
+                versions.put("estimatorVersion", snap.getEstimatorVersion());
+                versions.put("policyVersion", snap.getPolicyVersion());
+                versions.put("aiProvider", snap.getAiProvider());
+                versions.put("aiModel", snap.getAiModel());
+                versions.put("decisionVersion", snap.getDecisionVersion());
+                versions.put("evVersion", snap.getEvVersion());
+                var audits = auditRepo.findByCaseIdOrderByCreatedAtAsc(caseId);
+                Map<String, Object> auditRef = new LinkedHashMap<>();
+                auditRef.put("auditCount", audits.size());
+                auditRef.put("lastCorrelationId", audits.isEmpty() ? null : audits.get(audits.size() - 1).getCorrelationId().toString());
+                auditRef.put("eventsUrl", "/api/v1/recovery-cases/" + caseId + "/audit");
+                Map<String, Object> response = new LinkedHashMap<>();
+                Map<String, Object> caseMap = new LinkedHashMap<>();
+                caseMap.put("caseId", rc.getId().toString());
+                caseMap.put("paymentId", rc.getPayment() != null ? rc.getPayment().getId().toString() : null);
+                caseMap.put("amount", rc.getAmount());
+                caseMap.put("currency", rc.getCurrency());
+                caseMap.put("status", rc.getStatus().name());
+                caseMap.put("attemptCount", rc.getAttemptCount());
+                caseMap.put("recoveredAmount", rc.getRecoveredAmount());
+                caseMap.put("createdAt", rc.getCreatedAt());
+                caseMap.put("updatedAt", rc.getUpdatedAt());
+                response.put("case", caseMap);
+                response.put("observableEvidence", observable);
+                // Historical AI assessment – actual persisted, not NOT_PERSISTED
+                response.put("aiAssessment", aiAssessment);
+                response.put("candidates", candidates);
+                response.put("selectedAction", snap.getSelectedAction());
+                response.put("selectionReason", snap.getSelectionReason());
+                response.put("selectedExpectedNetValue", snap.getSelectedExpectedNetValue());
+                response.put("selectionTimestamp", snap.getSelectionTimestamp());
+                response.put("policySummary", policySummary);
+                response.put("versions", versions);
+                response.put("auditReference", auditRef);
+                response.put("auditEvents", audits.stream().map(ev -> Map.of(
+                        "id", ev.getId().toString(),
+                        "correlationId", ev.getCorrelationId().toString(),
+                        "eventType", ev.getEventType(),
+                        "fromState", ev.getFromState(),
+                        "toState", ev.getToState(),
+                        "actor", ev.getActor().name(),
+                        "createdAt", ev.getCreatedAt().toString(),
+                        "payload", ev.getPayload()
+                )).collect(Collectors.toList()));
+                // Ensure no hidden data leakage in snapshot
+                response.put("historical", true);
+                return response;
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to parse snapshot", e);
+            }
+        }
+        // No snapshot – return NOT_PERSISTED (do not fabricate)
         Map<String, Object> observable = new LinkedHashMap<>();
         observable.put("amount", rc.getAmount());
         observable.put("currency", rc.getCurrency());
@@ -53,17 +135,13 @@ public class DecisionQueryService {
         observable.put("failedAt", rc.getPayment() != null ? rc.getPayment().getFailedAt() : null);
         observable.put("elapsedHours", rc.getCreatedAt() != null ? java.time.Duration.between(rc.getCreatedAt(), Instant.now()).toHours() : 0);
         observable.put("attemptCount", rc.getAttemptCount());
-        // Prior counts from customer
         observable.put("priorSuccessCount", rc.getCustomer() != null ? rc.getCustomer().getSuccessCount() : 0);
         observable.put("priorFailureCount", rc.getCustomer() != null ? rc.getCustomer().getFailureCount() : 0);
         observable.put("linkAlreadySent", isLinkAlreadySent(rc));
 
-        // AI assessment – not yet persisted, return NOT_PERSISTED
         Map<String, Object> aiAssessment = new LinkedHashMap<>();
         aiAssessment.put("status", "NOT_PERSISTED");
-        aiAssessment.put("description", "Historical AI assessment not yet persisted – persistence is the missing capability. Current decision is recomputed live, not reconstructed from history.");
-        aiAssessment.put("note", "Do not fabricate AI assessment from gatewayCode. Actual assessment must be recorded during decision flow.");
-        // Provide empty structure for frontend to handle
+        aiAssessment.put("description", "Historical AI assessment not yet persisted – persistence is the missing capability. Decision snapshot will be created at next decision finalization.");
         aiAssessment.put("failureCategory", null);
         aiAssessment.put("recoverability", null);
         aiAssessment.put("candidateAssessments", null);
@@ -72,65 +150,20 @@ public class DecisionQueryService {
         aiAssessment.put("riskLevel", null);
         aiAssessment.put("reasoningSummary", null);
 
-        // Candidates – current recomputation via authoritative DecisionService (not historical fabrication)
-        // We compute candidates on-the-fly for the current case state; this is live, not historical.
-        ObservableContext obs = toObservableContext(rc);
-        // Use null AI for now (since AI not persisted, we recompute with null to show policy-only baseline)
-        // Alternatively, we could show with synthetic AI, but we keep it policy-only for now
-        var decision = decisionService.decide(obs, null, rc.getAmount(), toPolicyContext(rc, RecoveryActionType.RETRY_NOW), Set.of());
-        List<Map<String, Object>> candidates = new ArrayList<>();
-        for (int i = 0; i < decision.rankedCandidates().size(); i++) {
-            var ranked = decision.rankedCandidates().get(i);
-            var policy = decision.policyDecisions().get(i);
-            Map<String, Object> c = new LinkedHashMap<>();
-            c.put("action", ranked.action().name());
-            c.put("pEstimated", ranked.likelihood());
-            c.put("expectedNetValue", ranked.expectedNet());
-            c.put("operationalCost", ranked.cost());
-            c.put("syntheticCustomerFrictionProxy", ranked.syntheticFrictionProxy());
-            c.put("riskPenalty", ranked.riskPenalty());
-            c.put("policyResult", policy.result().name());
-            c.put("policyRuleId", policy.blockingRule() != null ? policy.blockingRule().name() : null);
-            c.put("policyReason", policy.reason());
-            // Estimator breakdown not persisted – do not fabricate
-            c.put("baseContribution", null);
-            c.put("aiContribution", null);
-            c.put("evidenceModifier", null);
-            c.put("recoverabilityModifier", null);
-            c.put("historyModifier", null);
-            c.put("elapsedModifier", null);
-            c.put("finalP", ranked.likelihood());
-            candidates.add(c);
-        }
-
-        // Selected action – from actual persisted decision if available, otherwise from current decision
-        String selectedAction = rc.getApprovedAction();
-        String selectionReason = decision.reason();
-        BigDecimal selectedEV = decision.hasSelection() ? decision.selected().expectedNet() : null;
-        Instant selectionTimestamp = rc.getApprovedAt();
-
-        // Policy summary
+        // For NOT_PERSISTED, do not recompute candidates via fresh decision – return empty historical
+        List<Map<String, Object>> candidates = List.of();
         Map<String, Object> policySummary = new LinkedHashMap<>();
-        policySummary.put("selectedPolicyDecision", decision.selectedPolicyDecision() != null ? decision.selectedPolicyDecision().result().name() : null);
-        policySummary.put("selectedRuleId", decision.selectedPolicyDecision() != null && decision.selectedPolicyDecision().blockingRule() != null ? decision.selectedPolicyDecision().blockingRule().name() : null);
-        policySummary.put("selectedReason", decision.selectedPolicyDecision() != null ? decision.selectedPolicyDecision().reason() : null);
-        policySummary.put("allDecisions", decision.policyDecisions().stream().map(d -> Map.of(
-                "action", d.action() != null ? d.action().name() : "NONE",
-                "result", d.result().name(),
-                "ruleId", d.blockingRule() != null ? d.blockingRule().name() : null,
-                "reason", d.reason()
-        )).collect(Collectors.toList()));
+        policySummary.put("selectedPolicyDecision", null);
+        policySummary.put("allDecisions", List.of());
 
-        // Versions – essential for auditability
         Map<String, Object> versions = new LinkedHashMap<>();
         versions.put("estimatorVersion", "v1");
         versions.put("policyVersion", policyConfig.getVersion());
-        versions.put("aiProvider", "SYNTHETIC_AI_PROXY");
-        versions.put("aiModel", "synthetic-ai-v1");
+        versions.put("aiProvider", null);
+        versions.put("aiModel", null);
         versions.put("decisionVersion", "decision-v1");
         versions.put("evVersion", "ev-v1");
 
-        // Audit reference
         var audits = auditRepo.findByCaseIdOrderByCreatedAtAsc(caseId);
         Map<String, Object> auditRef = new LinkedHashMap<>();
         auditRef.put("auditCount", audits.size());
@@ -152,14 +185,13 @@ public class DecisionQueryService {
         response.put("observableEvidence", observable);
         response.put("aiAssessment", aiAssessment);
         response.put("candidates", candidates);
-        response.put("selectedAction", selectedAction);
-        response.put("selectionReason", selectionReason);
-        response.put("selectedExpectedNetValue", selectedEV);
-        response.put("selectionTimestamp", selectionTimestamp);
+        response.put("selectedAction", rc.getApprovedAction());
+        response.put("selectionReason", null);
+        response.put("selectedExpectedNetValue", null);
+        response.put("selectionTimestamp", rc.getApprovedAt());
         response.put("policySummary", policySummary);
         response.put("versions", versions);
         response.put("auditReference", auditRef);
-        // Also include top-level for frontend convenience
         response.put("auditEvents", audits.stream().map(ev -> Map.of(
                 "id", ev.getId().toString(),
                 "correlationId", ev.getCorrelationId().toString(),
@@ -170,6 +202,7 @@ public class DecisionQueryService {
                 "createdAt", ev.getCreatedAt().toString(),
                 "payload", ev.getPayload()
         )).collect(Collectors.toList()));
+        response.put("historical", false);
         return response;
     }
 

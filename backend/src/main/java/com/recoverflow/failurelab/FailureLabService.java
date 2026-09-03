@@ -20,6 +20,10 @@ import com.recoverflow.recovery.RecoveryActionType;
 import com.recoverflow.recovery.RecoveryCase;
 import com.recoverflow.recovery.RecoveryCaseRepository;
 import com.recoverflow.recovery.RecoveryCaseStatus;
+import com.recoverflow.recovery.RecoveryDecisionSnapshotService;
+import com.recoverflow.likelihood.ObservableContext;
+import com.recoverflow.payment.PaymentMethod;
+import com.recoverflow.synthetic.SyntheticAiProxy;
 import com.recoverflow.execution.ExecutionResult;
 import com.recoverflow.execution.ExecutionService;
 import com.recoverflow.execution.ReconciliationService;
@@ -47,6 +51,8 @@ public class FailureLabService {
     private final MockPaymentGateway mockGateway;
     private final ExecutionService executionService;
     private final ReconciliationService reconciliationService;
+    private final RecoveryDecisionSnapshotService snapshotService;
+    private final SyntheticAiProxy syntheticAiProxy;
 
     public FailureLabService(RecoveryCaseRepository caseRepo,
                              RecoveryActionRepository actionRepo,
@@ -56,7 +62,9 @@ public class FailureLabService {
                              AuditEventRepository auditRepo,
                              MockPaymentGateway mockGateway,
                              ExecutionService executionService,
-                             ReconciliationService reconciliationService) {
+                             ReconciliationService reconciliationService,
+                             RecoveryDecisionSnapshotService snapshotService,
+                             SyntheticAiProxy syntheticAiProxy) {
         this.caseRepo = caseRepo;
         this.actionRepo = actionRepo;
         this.paymentRepo = paymentRepo;
@@ -66,6 +74,8 @@ public class FailureLabService {
         this.mockGateway = mockGateway;
         this.executionService = executionService;
         this.reconciliationService = reconciliationService;
+        this.snapshotService = snapshotService;
+        this.syntheticAiProxy = syntheticAiProxy;
     }
 
     private UUID scenarioCaseId(String scenarioId) {
@@ -123,7 +133,27 @@ public class FailureLabService {
                 f.set(rc, Instant.now().minusSeconds(50 * 3600));
             } catch (Exception ignored) {}
         }
-        return caseRepo.save(rc);
+        RecoveryCase saved = caseRepo.save(rc);
+        // Persist historical decision snapshot at decision finalization time (actual AI, candidates, policy)
+        try {
+            ObservableContext obs = new ObservableContext(
+                    saved.getAmount(),
+                    saved.getCurrency(),
+                    saved.getPayment().getMethod(),
+                    saved.getFailureCode() != null ? saved.getFailureCode() : "UNKNOWN",
+                    saved.getCreatedAt() != null ? (int) java.time.Duration.between(saved.getCreatedAt(), Instant.now()).toHours() : 0,
+                    saved.getAttemptCount() != null ? saved.getAttemptCount() : 0,
+                    saved.getCustomer().getSuccessCount(),
+                    saved.getCustomer().getFailureCount(),
+                    false
+            );
+            // Actual AI assessment at decision time (observable-only)
+            var ai = syntheticAiProxy.assess(obs);
+            snapshotService.persistSnapshot(saved.getId(), obs, ai, "SYNTHETIC_AI_PROXY", "synthetic-ai-v1");
+        } catch (Exception e) {
+            // Do not fail case creation if snapshot fails
+        }
+        return saved;
     }
 
     private String idempotencyKey(UUID caseId, RecoveryActionType action, int attempt) {
